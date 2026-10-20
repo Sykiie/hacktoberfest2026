@@ -1,3 +1,6 @@
+# hacktoberfest2026
+Project for Hacktoberfest 2026 Competition from team Gemma&Us
+
 # Local Community
 
 Local Community is an open-source, self-hosted web app for a temporary online community around a physical space. Guests on the venue's local network can read and publish text posts, comment, and identify themselves anonymously or with a venue-local account. The host can privately reveal account identities and moderate content from the loopback-only admin interface.
