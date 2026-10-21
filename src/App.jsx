@@ -28,6 +28,20 @@ function GuestWelcome() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
+  const [communityTab, setCommunityTab] = useState("feed");
+  const [notes, setNotes] = useState([]);
+  const [noteText, setNoteText] = useState("");
+  const [noteName, setNoteName] = useState("");
+  const [showNoteDate, setShowNoteDate] = useState(true);
+  const [notePosition, setNotePosition] = useState({ x: 0.39, y: 0.36 });
+  const [noteError, setNoteError] = useState("");
+  const [noteBusy, setNoteBusy] = useState(false);
+  const [noteCooldownUntil, setNoteCooldownUntil] = useState(0);
+  const [currentTime, setCurrentTime] = useState(Date.now());
+  const [guestSubmissions, setGuestSubmissions] = useState(() => {
+    try { const saved = JSON.parse(localStorage.getItem("local-community-note-submissions") || "[]"); return Array.isArray(saved) ? saved : []; } catch { return []; }
+  });
+  const [submissionMessage, setSubmissionMessage] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -35,12 +49,19 @@ function GuestWelcome() {
       .then((result) => {
         if (!active) return;
         setUser(result.user);
+        if (result.user) setNoteName(result.user.username);
         if (result.user) setScreen("feed");
       })
       .catch(() => {})
       .finally(() => { if (active) setCheckingSession(false); });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    if (!noteCooldownUntil || currentTime >= noteCooldownUntil) return undefined;
+    const timer = window.setInterval(() => setCurrentTime(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [noteCooldownUntil, currentTime]);
 
   const refreshFeed = useCallback(async () => {
     try {
@@ -52,13 +73,55 @@ function GuestWelcome() {
     }
   }, []);
 
+  const refreshNoteboard = useCallback(async () => {
+    try {
+      const result = await requestJson("/api/community/noteboard");
+      setNotes(result.notes);
+      setNoteError("");
+    } catch (reason) { setNoteError(reason.message); }
+  }, []);
+
   useEffect(() => {
     if (screen !== "feed") return undefined;
     const events = new EventSource("/api/community/events");
     events.onopen = refreshFeed;
     events.addEventListener("feed-changed", refreshFeed);
+    events.addEventListener("noteboard-changed", refreshNoteboard);
     return () => events.close();
-  }, [screen, refreshFeed]);
+  }, [screen, refreshFeed, refreshNoteboard]);
+
+  useEffect(() => {
+    if (screen !== "feed") return;
+    refreshNoteboard();
+  }, [screen, refreshNoteboard]);
+
+  useEffect(() => {
+    localStorage.setItem("local-community-note-submissions", JSON.stringify(guestSubmissions));
+  }, [guestSubmissions]);
+
+  useEffect(() => {
+    if (screen !== "feed" || user || guestSubmissions.length === 0) return undefined;
+    let active = true;
+    const check = async () => {
+      const remaining = [];
+      for (const submission of guestSubmissions) {
+        try {
+          const status = await requestJson("/api/community/noteboard/submission", { headers: { "X-Submission-Token": submission.token } });
+          if (status.state === "published") {
+            setSubmissionMessage("Your note is on the board.");
+            refreshNoteboard();
+          } else remaining.push({ ...submission, ...status });
+        } catch {
+          setSubmissionMessage("A guest submission has ended. Check the board to see if it was published; rejected or expired submissions are cleared automatically.");
+          refreshNoteboard();
+        }
+      }
+      if (active) setGuestSubmissions((current) => JSON.stringify(current) === JSON.stringify(remaining) ? current : remaining);
+    };
+    check();
+    const timer = window.setInterval(check, 5000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [screen, user, guestSubmissions, refreshNoteboard]);
 
   useEffect(() => {
     const trimmed = username.trim();
@@ -94,6 +157,7 @@ function GuestWelcome() {
       } else {
         setUser(result.user);
       }
+      setNoteName(result.user.username);
       setPassword("");
       setConfirmation("");
       setScreen("feed");
@@ -108,6 +172,7 @@ function GuestWelcome() {
     try {
       await requestJson("/api/account/logout", { method: "POST" });
       setUser(null);
+      setNoteName("");
       setPosts([]);
       setScreen("login");
     } catch (reason) {
@@ -166,6 +231,52 @@ function GuestWelcome() {
     } catch (reason) { setFeedError(reason.message); }
   }
 
+  async function publishNote(event) {
+    event.preventDefault();
+    if (!window.confirm(user ? "Place this note at the selected position? Published notes cannot be edited or moved." : "Send this note to the host for review? If it is published, guests cannot delete it.")) return;
+    setNoteBusy(true);
+    setNoteError("");
+    try {
+      const result = await requestJson("/api/community/noteboard", { method: "POST", body: JSON.stringify({ text: noteText, displayName: noteName || "Guest", position: notePosition, showDate: showNoteDate }) });
+      setNoteText("");
+      if (result.submission) {
+        setGuestSubmissions((current) => [...current, { id: result.submission.id, token: result.submission.token, text: noteText, displayName: noteName || "Guest", showDate: showNoteDate, state: "pending", reviewDeadline: result.submission.reviewDeadline }]);
+        setSubmissionMessage("Your note is waiting for host review. It will be automatically approved after 10 minutes if the host does not decide.");
+      } else {
+        setNoteCooldownUntil(Date.parse(result.cooldownUntil));
+        await refreshNoteboard();
+      }
+    } catch (reason) { setNoteError(reason.message); }
+    finally { setNoteBusy(false); }
+  }
+
+  function chooseNotePosition(event) {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1 - 0.22, (event.clientX - bounds.left) / bounds.width));
+    const y = Math.max(0, Math.min(1 - 0.23, (event.clientY - bounds.top) / bounds.height));
+    setNotePosition({ x: Number(x.toFixed(4)), y: Number(y.toFixed(4)) });
+  }
+
+  async function replaceGuestNote(submission) {
+    if (!window.confirm("Place your approved note at this position? The note will be published and cannot be moved.")) return;
+    try {
+      await requestJson("/api/community/noteboard/submission/position", { method: "POST", headers: { "X-Submission-Token": submission.token }, body: JSON.stringify({ position: notePosition }) });
+      setGuestSubmissions((items) => items.filter((item) => item.id !== submission.id));
+      setSubmissionMessage("Your note is on the board.");
+      await refreshNoteboard();
+    } catch (reason) { setNoteError(reason.message); }
+  }
+
+  async function removeNote(note) {
+    if (!window.confirm("Delete your note from the board? This cannot be undone.")) return;
+    try {
+      await requestJson(`/api/community/noteboard/${note.id}`, { method: "DELETE" });
+      await refreshNoteboard();
+    } catch (reason) { setNoteError(reason.message); }
+  }
+
+  const replacementPreview = guestSubmissions.find((submission) => submission.state === "placement-required");
+
   if (screen !== "feed") {
     return <main className="guest-page entry-page">
       <section className="guest-card entry-card">
@@ -200,8 +311,12 @@ function GuestWelcome() {
 
   return (
     <main className="guest-page feed-page">
-      <header className="feed-topbar"><div className="feed-brand"><div className="guest-mark" aria-hidden="true">LC</div><div><p className="eyebrow">LOCAL COMMUNITY</p><strong>Community feed</strong></div></div><div className="feed-account" role="status">{user ? <>Signed in as <strong>{user.username}</strong><button className="text-button" type="button" onClick={signOut}>Sign out</button></> : <>Continuing as guest<button className="text-button" type="button" onClick={() => { setError(""); setScreen("login"); }}>Sign in</button></>}</div></header>
-      <section className="community-feed" aria-label="Community feed">
+      <header className="feed-topbar"><div className="feed-brand"><div className="guest-mark" aria-hidden="true">LC</div><div><p className="eyebrow">LOCAL COMMUNITY</p><strong>{communityTab === "feed" ? "Community feed" : "Noteboard"}</strong></div></div><div className="feed-account" role="status">{user ? <>Signed in as <strong>{user.username}</strong><button className="text-button" type="button" onClick={signOut}>Sign out</button></> : <>Continuing as guest<button className="text-button" type="button" onClick={() => { setError(""); setScreen("login"); }}>Sign in</button></>}</div></header>
+      <nav className="community-module-tabs" role="tablist" aria-label="Community modules">
+        <button type="button" role="tab" aria-selected={communityTab === "feed"} className={communityTab === "feed" ? "module-tab module-tab-active" : "module-tab"} onClick={() => setCommunityTab("feed")}>Shared Feed</button>
+        <button type="button" role="tab" aria-selected={communityTab === "noteboard"} className={communityTab === "noteboard" ? "module-tab module-tab-active" : "module-tab"} onClick={() => setCommunityTab("noteboard")}>Noteboard</button>
+      </nav>
+      {communityTab === "feed" && <section className="community-feed" aria-label="Community feed">
         <header className="feed-heading"><div><p className="eyebrow">AROUND THIS SPACE</p><h2>Community feed</h2></div><span>{posts.length} {posts.length === 1 ? "post" : "posts"}</span></header>
         <form className="composer-card" onSubmit={publishPost}>
           <label htmlFor="new-post">Share something with the community</label>
@@ -219,7 +334,32 @@ function GuestWelcome() {
             <form className="comment-form" onSubmit={(event) => publishComment(event, post.id)}><input maxLength={2000} aria-label="Write a comment" placeholder={user ? "Add a comment…" : "Add an anonymous comment…"} value={commentDrafts[post.id] || ""} onChange={(event) => setCommentDrafts((items) => ({ ...items, [post.id]: event.target.value }))} required />{user && <label className="toggle-label compact-toggle"><input type="checkbox" checked={Boolean(commentAnonymous[post.id])} onChange={(event) => setCommentAnonymous((items) => ({ ...items, [post.id]: event.target.checked }))} /> Anonymous</label>}<button type="submit" aria-label="Publish comment">↗</button></form>
           </div>
         </article>)}
-      </section>
+      </section>}
+      {communityTab === "noteboard" && <section className="community-feed noteboard-page" aria-label="Noteboard">
+        <header className="feed-heading"><div><p className="eyebrow">LEAVE A LITTLE NOTE</p><h2>Community Noteboard</h2></div><span>{notes.length} {notes.length === 1 ? "note" : "notes"}</span></header>
+        <p className="moderation-explainer">Choose a spot on the board. Notes can overlap, but placement is rejected if it would cover more than 30% of any note underneath. Placement is final.</p>
+        <div className="noteboard-canvas" role="application" aria-label="Click to choose where to place a note" onClick={chooseNotePosition}>
+          <div className="board-grid" aria-hidden="true" />
+          {notes.map((note, index) => <article key={note.id} className="sticky-note" style={{ left: `${note.x * 100}%`, top: `${note.y * 100}%`, zIndex: notes.length - index }}>
+            <small>{note.displayName}</small><p>{note.text}</p>{note.showDate && <time>{new Date(note.createdAt).toLocaleDateString()}</time>}
+            {note.canDelete && <button type="button" className="sticky-delete" onClick={(event) => { event.stopPropagation(); removeNote(note); }} disabled={currentTime < noteCooldownUntil} title={currentTime < noteCooldownUntil ? "Posting cooldown is active" : "Delete your note"}>×</button>}
+          </article>)}
+          {(noteText.trim() || replacementPreview) && <article className="sticky-note sticky-note-preview" style={{ left: `${notePosition.x * 100}%`, top: `${notePosition.y * 100}%` }}><small>{replacementPreview?.displayName ?? noteName}</small><p>{replacementPreview?.text || noteText}</p>{(replacementPreview?.showDate ?? showNoteDate) && <time>{new Date().toLocaleDateString()}</time>}</article>}
+        </div>
+        <p className="position-hint">Click anywhere on the board to choose the note’s top-left position. Selected: {Math.round(notePosition.x * 100)}%, {Math.round(notePosition.y * 100)}%</p>
+        {guestSubmissions.length > 0 && <section className="submission-status-card" aria-live="polite"><h3>Your guest submissions</h3>{guestSubmissions.map((submission) => <div className="submission-status" key={submission.id}><strong>{submission.state === "placement-required" ? "Approved — choose a new position" : "Waiting for host review"}</strong><span>{submission.state === "placement-required" ? `Choose a valid spot before ${new Date(submission.placementDeadline).toLocaleTimeString()}.` : `Review deadline: ${new Date(submission.reviewDeadline).toLocaleTimeString()}`}</span>{submission.state === "placement-required" && <button className="secondary-button" type="button" onClick={() => replaceGuestNote(submission)}>Place at selected spot</button>}</div>)}</section>}
+        {submissionMessage && <p className="success-message" role="status">{submissionMessage}</p>}
+        <form className="composer-card note-composer" onSubmit={publishNote}>
+          <label htmlFor="note-display-name">Display name</label>
+          <input id="note-display-name" name="noteboard-display-name" type="text" autoComplete="off" autoCapitalize="words" autoCorrect="off" enterKeyHint="done" spellCheck={false} maxLength={32} value={noteName} onChange={(event) => setNoteName(event.currentTarget.value)} placeholder="Choose a name for this note" required />
+          <label className="toggle-label date-toggle"><input type="checkbox" checked={showNoteDate} onChange={(event) => setShowNoteDate(event.target.checked)} /> Show date on this note</label>
+          <label htmlFor="new-note">Your note</label>
+          <textarea id="new-note" maxLength={500} rows={3} value={noteText} onChange={(event) => setNoteText(event.target.value)} placeholder="Write a short note…" required />
+          <div className="composer-footer"><span>{noteText.length}/500</span><button className="primary-button" type="submit" disabled={noteBusy || (user && currentTime < noteCooldownUntil)}>{noteBusy ? "Placing…" : user && currentTime < noteCooldownUntil ? "Cooldown active" : user ? "Place note" : "Submit for review"}</button></div>
+        </form>
+        {user && currentTime < noteCooldownUntil && <p className="field-hint">You can post or delete a note after {new Date(noteCooldownUntil).toLocaleTimeString()}.</p>}
+        {noteError && <p className="error-message feed-error" role="alert">{noteError}</p>}
+      </section>}
       <footer>Hosted locally by this venue</footer>
     </main>
   );
@@ -276,7 +416,7 @@ function AdminLogin({ onAuthenticated }) {
   );
 }
 
-function AdminModeration() {
+function AdminFeedModeration() {
   const [posts, setPosts] = useState([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -327,6 +467,138 @@ function AdminModeration() {
       </div>
     </article>)}
   </section>;
+}
+
+function AccountFreezeList({ accounts, busyId, onToggle }) {
+  if (!accounts.length) return <p className="field-hint">No community accounts have been created yet.</p>;
+  return <div className="account-freeze-list">{accounts.map((account) => <div className="account-freeze-row" key={account.username}>
+    <strong>{account.username}</strong>
+    {account.frozenUntil && <span>Frozen until {new Date(account.frozenUntil).toLocaleString()}</span>}
+    <button className="text-button" type="button" disabled={busyId === account.username} onClick={() => onToggle(account)}>{account.frozenUntil ? "Unfreeze" : "Freeze 24 hours"}</button>
+  </div>)}</div>;
+}
+
+function AdminAccountModeration() {
+  const [accounts, setAccounts] = useState([]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState("");
+
+  const refresh = useCallback(async () => {
+    const result = await requestJson("/api/admin/moderation/accounts");
+    setAccounts(result.accounts);
+  }, []);
+
+  useEffect(() => {
+    const load = () => refresh().catch((reason) => setError(reason.message)).finally(() => setLoading(false));
+    const events = new EventSource("/api/community/events");
+    events.onopen = load;
+    events.addEventListener("noteboard-changed", load);
+    events.addEventListener("feed-changed", load);
+    return () => events.close();
+  }, [refresh]);
+
+  async function toggleFreeze(account) {
+    setBusyId(account.username);
+    try {
+      await requestJson(`/api/admin/moderation/accounts/${encodeURIComponent(account.username)}/${account.frozenUntil ? "unfreeze" : "freeze"}`, { method: "POST" });
+      await refresh();
+      setError("");
+    } catch (reason) { setError(reason.message); }
+    finally { setBusyId(""); }
+  }
+
+  return <section className="community-feed host-moderation-feed" aria-label="Host account moderation">
+    <header className="feed-heading"><div><p className="eyebrow">GLOBAL MODERATION</p><h2>Accounts</h2></div><span>{accounts.length} {accounts.length === 1 ? "account" : "accounts"}</span></header>
+    <p className="moderation-explainer">Manage account freezes across the whole community. A freeze lasts 24 hours and blocks posting and note contributions. Guests have no persistent account to freeze.</p>
+    {error && <p className="error-message feed-error" role="alert">{error}</p>}
+    {loading ? <div className="feed-empty" role="status">Loading accounts…</div> : <section className="moderation-section"><h3>Community accounts</h3><AccountFreezeList accounts={accounts} busyId={busyId} onToggle={toggleFreeze} /></section>}
+  </section>;
+}
+
+function AdminNoteboardModeration() {
+  const [data, setData] = useState({ notes: [], submissions: [], audit: [], accounts: [] });
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState("");
+  const [auditPassword, setAuditPassword] = useState("");
+
+  const refresh = useCallback(async () => {
+    const result = await requestJson("/api/admin/moderation/noteboard");
+    setData(result);
+  }, []);
+
+  useEffect(() => {
+    const load = () => refresh().catch((reason) => setError(reason.message)).finally(() => setLoading(false));
+    const events = new EventSource("/api/community/events");
+    events.onopen = load;
+    events.addEventListener("noteboard-changed", load);
+    return () => events.close();
+  }, [refresh]);
+
+  async function act(id, path, method = "POST", body) {
+    setBusyId(id);
+    try {
+      await requestJson(path, { method, ...(body ? { body: JSON.stringify(body) } : {}) });
+      await refresh();
+      setError("");
+    } catch (reason) { setError(reason.message); }
+    finally { setBusyId(""); }
+  }
+
+  async function clearAudit(event) {
+    event.preventDefault();
+    if (!window.confirm("Clear the noteboard audit history? This does not delete notes.")) return;
+    await act("audit", "/api/admin/moderation/noteboard/audit/clear", "POST", { password: auditPassword });
+    setAuditPassword("");
+  }
+
+  return <section className="community-feed host-moderation-feed" aria-label="Host noteboard moderation">
+    <header className="feed-heading"><div><p className="eyebrow">PRIVATE HOST VIEW</p><h2>Noteboard moderation</h2></div><span>{data.notes.length} published</span></header>
+    <p className="moderation-explainer">Guest notes wait up to 10 minutes for review, then publish and are flagged for review. Approved notes that need a new position stay private until placed. Audit history is visible only here.</p>
+    {error && <p className="error-message feed-error" role="alert">{error}</p>}
+    {loading && <div className="feed-empty" role="status">Loading noteboard moderation…</div>}
+    {!loading && <>
+      <section className="moderation-section"><h3>Guest submissions</h3>
+        {data.submissions.length === 0 && <p className="field-hint">No submissions are awaiting action.</p>}
+        {data.submissions.map((submission) => <article className="moderation-note-row" key={submission.id}>
+          <div><div className="moderation-author"><strong>{submission.displayName}</strong><span className="anonymity-badge">{submission.author}</span></div><p>{submission.text}</p><small>{submission.state === "pending" ? `Review by ${new Date(submission.reviewDeadline).toLocaleString()}` : `Choose a valid position by ${new Date(submission.placementDeadline).toLocaleString()}`}</small></div>
+          {submission.state === "pending" && <div className="item-actions"><button type="button" disabled={busyId === submission.id} onClick={() => act(submission.id, `/api/admin/moderation/noteboard/submissions/${submission.id}/approve`)}>Approve</button><button type="button" disabled={busyId === submission.id} onClick={() => act(submission.id, `/api/admin/moderation/noteboard/submissions/${submission.id}/reject`)}>Reject</button></div>}
+        </article>)}
+      </section>
+      <section className="moderation-section"><h3>Published notes</h3>
+        {data.notes.length === 0 && <p className="field-hint">No notes are on the board.</p>}
+        {data.notes.map((note) => <article className="moderation-note-row" key={note.id}>
+          <div><div className="moderation-author"><strong>{note.displayName}</strong><span className="anonymity-badge">Host identity: {note.author}</span>{note.needsReview && <span className="review-badge">Needs review</span>}</div><p>{note.text}</p><small>{new Date(note.createdAt).toLocaleString()} · Position {Math.round(note.x * 100)}%, {Math.round(note.y * 100)}%</small></div>
+          <div className="item-actions">{note.needsReview && <button type="button" disabled={busyId === note.id} onClick={() => act(note.id, `/api/admin/moderation/noteboard/notes/${note.id}/reviewed`)}>Mark reviewed</button>}<button type="button" disabled={busyId === note.id} onClick={() => { if (window.confirm("Remove this note from the board?")) act(note.id, `/api/admin/moderation/noteboard/notes/${note.id}`, "DELETE"); }}>Remove</button></div>
+        </article>)}
+      </section>
+      <section className="moderation-section"><h3>Global account freezes</h3><p className="field-hint">A freeze lasts 24 hours and blocks contribution across the feed and Noteboard. Guests have no persistent account to freeze.</p>
+        <AccountFreezeList accounts={data.accounts} busyId={busyId} onToggle={(account) => act(account.username, `/api/admin/moderation/accounts/${encodeURIComponent(account.username)}/${account.frozenUntil ? "unfreeze" : "freeze"}`)} />
+      </section>
+      <details className="audit-dropdown">
+        <summary>Recent note history <span>{data.audit.length} entries</span></summary>
+        <div className="audit-dropdown-content">
+          <p className="field-hint">Keeps up to 500 events or 30 days. Deleted note text remains here until pruned or cleared.</p>
+          {data.audit.length === 0 && <p className="field-hint">No history entries.</p>}
+          {data.audit.map((entry) => <article className="audit-row" key={entry.id}><div><strong>{entry.action.replaceAll("-", " ")}</strong><span>{entry.author}{entry.displayName ? ` · displayed as ${entry.displayName}` : ""}</span><time>{new Date(entry.createdAt).toLocaleString()}</time><p>{entry.text}</p></div></article>)}
+          <form className="audit-clear-form" onSubmit={clearAudit}><label htmlFor="audit-password">Admin password to clear history</label><input id="audit-password" type="password" autoComplete="current-password" value={auditPassword} onChange={(event) => setAuditPassword(event.target.value)} required /><button className="secondary-button" type="submit" disabled={busyId === "audit"}>Clear history</button></form>
+        </div>
+      </details>
+    </>}
+  </section>;
+}
+
+function AdminModeration() {
+  const [moduleTab, setModuleTab] = useState("feed");
+  return <>
+    <div className="admin-tabs module-admin-tabs" role="tablist" aria-label="Community moderation modules">
+      <button className={`admin-tab ${moduleTab === "feed" ? "admin-tab-active" : ""}`} type="button" role="tab" aria-selected={moduleTab === "feed"} onClick={() => setModuleTab("feed")}>Feed</button>
+      <button className={`admin-tab ${moduleTab === "noteboard" ? "admin-tab-active" : ""}`} type="button" role="tab" aria-selected={moduleTab === "noteboard"} onClick={() => setModuleTab("noteboard")}>Noteboard</button>
+      <button className={`admin-tab ${moduleTab === "accounts" ? "admin-tab-active" : ""}`} type="button" role="tab" aria-selected={moduleTab === "accounts"} onClick={() => setModuleTab("accounts")}>Accounts</button>
+    </div>
+    {moduleTab === "feed" ? <AdminFeedModeration /> : moduleTab === "noteboard" ? <AdminNoteboardModeration /> : <AdminAccountModeration />}
+  </>;
 }
 
 function AdminDashboard({ initialStatus, onLogout }) {

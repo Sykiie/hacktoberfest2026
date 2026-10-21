@@ -9,6 +9,7 @@ import { getPrivateIPv4Interfaces } from "./network.js";
 import { createJoinPayload } from "./join.js";
 import { createUserAuth } from "./user-auth.js";
 import { createCommunityStore } from "./community-store.js";
+import { createNoteboardStore } from "./noteboard-store.js";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const projectDir = path.resolve(currentDir, "..");
@@ -51,6 +52,8 @@ export async function createHostServer({
   await userAuth.load();
   const community = createCommunityStore(path.join(dataDirectory, "community.json"));
   await community.load();
+  const noteboard = createNoteboardStore({ boardFile: path.join(dataDirectory, "noteboard.json"), auditFile: path.join(dataDirectory, "noteboard-audit.json") });
+  await noteboard.load();
 
   const app = express();
   const lanListeners = new Map();
@@ -59,6 +62,7 @@ export async function createHostServer({
   let activePort = port;
   let hostingEnabled = false;
   let refreshTimer;
+  let noteboardTimer;
 
   app.disable("x-powered-by");
   app.use(express.json({ limit: "8kb" }));
@@ -85,6 +89,16 @@ export async function createHostServer({
         continue;
       }
       response.write("event: feed-changed\ndata: {}\n\n");
+    }
+  }
+
+  function broadcastNoteboardChanged() {
+    for (const response of feedEventClients) {
+      if (response.destroyed || response.writableEnded) {
+        feedEventClients.delete(response);
+        continue;
+      }
+      response.write("event: noteboard-changed\ndata: {}\n\n");
     }
   }
 
@@ -125,9 +139,60 @@ export async function createHostServer({
     response.set("Cache-Control", "no-store").json({ posts: community.list(author?.key || null) });
   });
 
+  app.get("/api/community/noteboard", async (request, response) => {
+    try {
+      const author = userAuth.identifyUser(request);
+      response.set("Cache-Control", "no-store").json({ notes: await noteboard.list(author?.key || null) });
+    } catch (error) { sendCommunityError(response, error, "Could not load the noteboard."); }
+  });
+
+  app.post("/api/community/noteboard", async (request, response) => {
+    try {
+      const author = userAuth.identifyUser(request);
+      if (!author) {
+        const submission = await noteboard.submitGuest({ text: request.body?.text, displayName: request.body?.displayName, position: request.body?.position });
+        broadcastNoteboardChanged();
+        return response.status(201).set("Cache-Control", "no-store").json({ submission });
+      }
+      userAuth.assertCanContribute(author.key);
+      await noteboard.validateCandidate(request.body || {});
+      const cooldownUntil = await userAuth.startNoteCooldown(author.key);
+      const note = await noteboard.createSignedIn({ ...request.body, author });
+      broadcastNoteboardChanged();
+      return response.status(201).set("Cache-Control", "no-store").json({ note, cooldownUntil });
+    } catch (error) { return sendCommunityError(response, error, "Could not place this note."); }
+  });
+
+  app.get("/api/community/noteboard/submission", async (request, response) => {
+    try {
+      const status = await noteboard.getSubmission(request.get("x-submission-token"));
+      response.set("Cache-Control", "no-store").json(status);
+    } catch (error) { sendCommunityError(response, error, "Could not check this note submission."); }
+  });
+
+  app.post("/api/community/noteboard/submission/position", async (request, response) => {
+    try {
+      const note = await noteboard.replaceGuestPosition(request.get("x-submission-token"), request.body?.position);
+      broadcastNoteboardChanged();
+      response.set("Cache-Control", "no-store").json({ note });
+    } catch (error) { sendCommunityError(response, error, "Could not place this note."); }
+  });
+
+  app.delete("/api/community/noteboard/:noteId", async (request, response) => {
+    try {
+      const author = userAuth.identifyUser(request);
+      if (!author) throw Object.assign(new Error("Guests cannot delete published notes."), { status: 403 });
+      userAuth.assertCanDeleteNote(author.key);
+      await noteboard.deleteNote(request.params.noteId, { authorKey: author.key });
+      broadcastNoteboardChanged();
+      response.set("Cache-Control", "no-store").json({ ok: true });
+    } catch (error) { sendCommunityError(response, error, "Could not delete this note."); }
+  });
+
   app.post("/api/community/posts", async (request, response) => {
     try {
       const author = userAuth.identifyUser(request);
+      if (author) userAuth.assertCanContribute(author.key);
       const id = await community.createPost({
         text: request.body?.text,
         author,
@@ -143,6 +208,7 @@ export async function createHostServer({
   app.patch("/api/community/posts/:postId", async (request, response) => {
     try {
       const author = userAuth.identifyUser(request);
+      if (author) userAuth.assertCanContribute(author.key);
       await community.updatePost({ postId: request.params.postId, text: request.body?.text, authorKey: author?.key });
       broadcastFeedChanged();
       response.set("Cache-Control", "no-store").json({ ok: true });
@@ -154,6 +220,7 @@ export async function createHostServer({
   app.delete("/api/community/posts/:postId", async (request, response) => {
     try {
       const author = userAuth.identifyUser(request);
+      if (author) userAuth.assertCanContribute(author.key);
       await community.deletePost({ postId: request.params.postId, authorKey: author?.key });
       broadcastFeedChanged();
       response.set("Cache-Control", "no-store").json({ ok: true });
@@ -165,6 +232,7 @@ export async function createHostServer({
   app.post("/api/community/posts/:postId/comments", async (request, response) => {
     try {
       const author = userAuth.identifyUser(request);
+      if (author) userAuth.assertCanContribute(author.key);
       const id = await community.createComment({
         postId: request.params.postId,
         text: request.body?.text,
@@ -181,6 +249,7 @@ export async function createHostServer({
   app.patch("/api/community/posts/:postId/comments/:commentId", async (request, response) => {
     try {
       const author = userAuth.identifyUser(request);
+      if (author) userAuth.assertCanContribute(author.key);
       await community.updateComment({ postId: request.params.postId, commentId: request.params.commentId, text: request.body?.text, authorKey: author?.key });
       broadcastFeedChanged();
       response.set("Cache-Control", "no-store").json({ ok: true });
@@ -192,6 +261,7 @@ export async function createHostServer({
   app.delete("/api/community/posts/:postId/comments/:commentId", async (request, response) => {
     try {
       const author = userAuth.identifyUser(request);
+      if (author) userAuth.assertCanContribute(author.key);
       await community.deleteComment({ postId: request.params.postId, commentId: request.params.commentId, authorKey: author?.key });
       broadcastFeedChanged();
       response.set("Cache-Control", "no-store").json({ ok: true });
@@ -288,6 +358,59 @@ export async function createHostServer({
 
   app.get("/api/admin/moderation/feed", requireOwner, (_request, response) => {
     response.set("Cache-Control", "no-store").json({ posts: community.listForModeration() });
+  });
+
+  app.get("/api/admin/moderation/noteboard", requireOwner, async (_request, response) => {
+    try {
+      const data = await noteboard.listForModeration();
+      response.set("Cache-Control", "no-store").json({ ...data, accounts: userAuth.listAccounts() });
+    } catch (error) { sendCommunityError(response, error, "Could not load noteboard moderation."); }
+  });
+
+  app.get("/api/admin/moderation/accounts", requireOwner, (_request, response) => {
+    response.set("Cache-Control", "no-store").json({ accounts: userAuth.listAccounts() });
+  });
+
+  app.post("/api/admin/moderation/noteboard/submissions/:submissionId/:action", requireOwner, async (request, response) => {
+    try {
+      await noteboard.moderateSubmission(request.params.submissionId, request.params.action);
+      broadcastNoteboardChanged();
+      response.set("Cache-Control", "no-store").json({ ok: true });
+    } catch (error) { sendCommunityError(response, error, "Could not moderate this note submission."); }
+  });
+
+  app.post("/api/admin/moderation/noteboard/notes/:noteId/reviewed", requireOwner, async (request, response) => {
+    try {
+      await noteboard.markReviewed(request.params.noteId);
+      broadcastNoteboardChanged();
+      response.set("Cache-Control", "no-store").json({ ok: true });
+    } catch (error) { sendCommunityError(response, error, "Could not mark this note as reviewed."); }
+  });
+
+  app.delete("/api/admin/moderation/noteboard/notes/:noteId", requireOwner, async (request, response) => {
+    try {
+      await noteboard.deleteNote(request.params.noteId, { isModerator: true });
+      broadcastNoteboardChanged();
+      response.set("Cache-Control", "no-store").json({ ok: true });
+    } catch (error) { sendCommunityError(response, error, "Could not remove this note."); }
+  });
+
+  app.post("/api/admin/moderation/noteboard/audit/clear", requireOwner, async (request, response) => {
+    if (!await auth.verifyPassword(request.body?.password)) return response.status(401).json({ error: "The admin password is incorrect." });
+    try {
+      await noteboard.clearAudit();
+      broadcastNoteboardChanged();
+      response.set("Cache-Control", "no-store").json({ ok: true });
+    } catch (error) { sendCommunityError(response, error, "Could not clear the audit history."); }
+  });
+
+  app.post("/api/admin/moderation/accounts/:username/:action", requireOwner, async (request, response) => {
+    try {
+      if (!["freeze", "unfreeze"].includes(request.params.action)) return response.status(400).json({ error: "Choose freeze or unfreeze." });
+      const result = await userAuth.setFrozen(request.params.username, request.params.action === "freeze");
+      broadcastNoteboardChanged();
+      response.set("Cache-Control", "no-store").json(result);
+    } catch (error) { sendCommunityError(response, error, "Could not update this account's freeze."); }
   });
 
   app.patch("/api/admin/moderation/posts/:postId", requireOwner, async (request, response) => {
@@ -404,6 +527,11 @@ export async function createHostServer({
         if (hostingEnabled) syncLanListeners().catch((error) => console.error("Could not refresh LAN listeners:", error.message));
       }, 5000);
       refreshTimer.unref();
+      noteboardTimer = setInterval(() => {
+        noteboard.processDeadlines().then((changed) => { if (changed) broadcastNoteboardChanged(); })
+          .catch((error) => console.error("Could not process noteboard deadlines:", error.message));
+      }, 5000);
+      noteboardTimer.unref();
     },
     async setHostingEnabled(enabled) {
       if (enabled) await enableHosting();
@@ -412,6 +540,7 @@ export async function createHostServer({
     },
     async close() {
       clearInterval(refreshTimer);
+      clearInterval(noteboardTimer);
       await disableHosting();
       await closeServer(loopbackListener);
       loopbackListener = undefined;

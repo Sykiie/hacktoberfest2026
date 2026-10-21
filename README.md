@@ -3,7 +3,7 @@ Project for Hacktoberfest 2026 Competition from team Gemma&Us
 
 # Local Community
 
-Local Community is an open-source, self-hosted web app for a temporary online community around a physical space. Guests on the venue's local network can read and publish text posts, comment, and identify themselves anonymously or with a venue-local account. The host can privately reveal account identities and moderate content from the loopback-only admin interface.
+Local Community is an open-source, self-hosted web app for a temporary online community around a physical space. Guests on the venue's local network can use the Shared Feed and Noteboard modules. They can publish posts and comments, or place short notes on a shared visual board. The host can privately reveal account identities and moderate content from the loopback-only admin interface.
 
 ## Host setup
 
@@ -16,7 +16,7 @@ Requirements: Node.js 20 or later, the project dependencies, and a computer conn
 5. Open the printed admin address, `http://127.0.0.1:3000/admin`, on the host computer.
 6. Sign in on the host computer with the fresh-install default password `locomi`. After signing in, open the **Security** tab and change the password to one with at least 10 characters. The host stores only a salted password hash in its local `data/owner.json` file. Existing installations keep their saved password when updated.
 7. Select **Enable guest hosting** when guests should be able to connect. The admin screen then shows the current join URL and QR code.
-8. Guests connected to the venue network can scan the QR code or open the URL. The first screen asks them to sign in, create a venue-local account, or continue as a guest. After choosing, they enter the community feed. Returning signed-in users go directly to the feed.
+8. Guests connected to the venue network can scan the QR code or open the URL. The first screen asks them to sign in, create a venue-local account, or continue as a guest. After choosing, they enter the community with separate **Shared Feed** and **Noteboard** tabs. Returning signed-in users go directly to the community.
 9. Select **Disable guest hosting** to close guest access. The local admin page and guest preview at `http://127.0.0.1:3000/` remain available on the host computer.
 10. Stop the app with `Ctrl+C` when finished. Guest hosting starts disabled each time the app is restarted, so sign in and enable it again when needed.
 
@@ -45,7 +45,21 @@ Network reachability is the access boundary for this milestone. It does not prov
 - The host can participate publicly by opening the shared community feed and signing in with a regular venue-local account. The owner password remains separate and is not used as a public identity.
 - Host moderation routes are restricted to loopback connections and are unavailable from guest devices.
 
-This first feed milestone intentionally does not include reactions, sticky notes, attachments, private messages, notifications, or account recovery.
+The current community modules do not include feed reactions, attachments, private messages, notifications, or account recovery.
+
+## Community modules and Noteboard
+
+- The community opens with **Shared Feed** and **Noteboard** enabled by default, each in its own guest-facing tab. Module selection and per-venue feature settings are not available yet.
+- The Noteboard is a shared board rendered with the same relative layout on phones and computers. Click the board to choose a note's top-left position. Notes can overlap, but a placement is rejected if it would cover more than 30% of any note underneath, including combined coverage from several notes. While writing, authors can choose whether a calendar date appears on their note; it is shown by default, and times are never displayed. After publication, note text and position are final; authors cannot edit or move notes.
+- Notes contain up to 500 characters and have a public display name (up to 32 characters). Signed-in authors may choose any display name; the host can still see the account username.
+- Signed-in notes publish immediately after confirmation. The account then has a one-minute server-enforced cooldown that prevents posting another note or deleting notes. Authors can delete their own notes after the cooldown.
+- Guests submit notes for host review. The host can approve or reject during the first 10 minutes. Notes are automatically approved after 10 minutes; if the chosen position is still available, they appear on the board marked **Needs review**. If another note makes that position invalid, the approved note stays private and the guest has 30 minutes to choose a valid replacement position without another content review. An unplaced note expires after that window.
+- Each guest submission receives a random, single-submission token. The host stores only its hash. It permits checking that submission's status and placing an approved note in a replacement position; it cannot delete a published note. The host removes the token when the submission is published, rejected, or expires, and the guest browser clears its copy after learning it is terminal. Tokens are kept in that browser's local storage while the submission is active so the guest can return after closing the page. Because the app currently uses HTTP, a capable local-network observer could capture a pending token. Its authority is limited to that one submission and its short review/placement lifetime.
+- Guests cannot delete published notes. Signed-in authors can delete their own notes after cooldown, and the host can remove any note from the loopback-only admin view.
+- In admin **Community**, the host can switch between **Feed**, **Noteboard**, and **Accounts** moderation tabs. The Noteboard view shows guest submissions, published notes, review flags, an account-freeze shortcut, and audit history. Auto-published notes remain flagged until the host marks them reviewed. The history is collapsed by default to keep the moderation view compact.
+- The host audit records note text, display name, account username when signed in (otherwise Guest), action, and time. It keeps at most 500 events and removes events older than 30 days. Clearing history requires a confirmation dialog and the admin password; it does not remove notes from the board.
+- The host can freeze a signed-in account for 24 hours from the Accounts moderation tab or the Noteboard shortcut, or unfreeze it sooner. Freezes apply globally across community modules: the account can still read, but cannot create, edit, or delete feed contributions or notes. Accountless guests cannot be frozen.
+- Board changes update open guest boards and host Noteboard moderation views over the existing server-sent event stream; clients fetch content from their normal authorized API routes.
 
 **Prototype account security:** The app currently uses HTTP on the local network. Passwords and session cookies are not encrypted in transit, so someone monitoring the venue network could capture them. The registration screen discloses this before password submission. Use a unique, disposable password that you do not use anywhere else, and do not use these prototype accounts for sensitive information. Add HTTPS before introducing sensitive content or relying on accounts for important access.
 
