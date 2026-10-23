@@ -186,7 +186,7 @@ export function createNoteboardStore({ boardFile, auditFile, now = () => Date.no
       validateUniquePlacement(point, draft.notes);
       token = randomBytes(32).toString("base64url");
       const id = randomUUID();
-      draft.submissions.push({ id, note: { text: content, displayName: name, showDate: showDate !== false, ownerKey: null, ownerUsername: null }, position: point, state: "pending", submittedAt: now(), reviewDeadline: now() + REVIEW_WINDOW_MS, placementDeadline: null, tokenHash: tokenHash(token), needsReview: false });
+      draft.submissions.push({ id, note: { text: content, displayName: name, showDate: showDate !== false, ownerKey: null, ownerUsername: null }, aiReview: { status: "pending", reason: "", severity: "none", checkedAt: null }, position: point, state: "pending", submittedAt: now(), reviewDeadline: now() + REVIEW_WINDOW_MS, placementDeadline: null, tokenHash: tokenHash(token), needsReview: false });
       addAudit(events, { id, text: content, displayName: name, ownerUsername: null }, "submitted-for-review");
       return id;
     });
@@ -223,7 +223,7 @@ export function createNoteboardStore({ boardFile, auditFile, now = () => Date.no
     return mutate((draft, events) => {
       expireAndApprove(draft, events);
       validateUniquePlacement(point, draft.notes);
-      const note = { id: randomUUID(), text: content, displayName: name, showDate: showDate !== false, ...point, ownerKey: author.key, ownerUsername: author.username, createdAt: new Date(now()).toISOString(), needsReview: false };
+      const note = { id: randomUUID(), text: content, displayName: name, showDate: showDate !== false, ...point, ownerKey: author.key, ownerUsername: author.username, createdAt: new Date(now()).toISOString(), needsReview: false, aiReview: { status: "pending", reason: "", severity: "none", checkedAt: null } };
       draft.notes.unshift(note);
       addAudit(events, note, "published");
       return publicNote(note, author.key);
@@ -277,11 +277,34 @@ export function createNoteboardStore({ boardFile, auditFile, now = () => Date.no
       note.needsReview = false;
     });
   }
+  async function listAiChecks() {
+    await processDeadlines();
+    const items = [];
+    for (const submission of state.submissions) if (["pending", "unavailable"].includes(submission.aiReview?.status)) items.push({ itemType: "noteboard-submission", id: submission.id, text: submission.note.text });
+    for (const note of state.notes) if (["pending", "unavailable"].includes(note.aiReview?.status)) items.push({ itemType: "noteboard-note", id: note.id, text: note.text });
+    return items;
+  }
+  async function setAiReview({ itemType, id, expectedText, status, reason = "", severity = "none", checkedAt = null }) {
+    return mutate((draft) => {
+      const item = itemType === "noteboard-submission" ? draft.submissions.find((entry) => entry.id === id) : draft.notes.find((entry) => entry.id === id);
+      const text = itemType === "noteboard-submission" ? item?.note.text : item?.text;
+      if (!item || text !== expectedText) return false;
+      item.aiReview = { status, reason: ["flagged", "unavailable"].includes(status) ? String(reason).slice(0, 500) : "", severity, checkedAt };
+      return true;
+    });
+  }
+  async function markAiReviewed(id, itemType) {
+    return mutate((draft) => {
+      const item = itemType === "noteboard-submission" ? draft.submissions.find((entry) => entry.id === id) : draft.notes.find((entry) => entry.id === id);
+      if (!item || item.aiReview?.status !== "flagged") throw fail(404, "That AI-flagged note could not be found.");
+      item.aiReview = { ...item.aiReview, status: "reviewed" };
+    });
+  }
   async function listForModeration() {
     await processDeadlines();
     return {
-      notes: state.notes.map(moderationNote),
-      submissions: state.submissions.map((item) => ({ id: item.id, text: item.note.text, displayName: item.note.displayName, author: item.note.ownerUsername || "Guest", state: item.state, submittedAt: new Date(item.submittedAt).toISOString(), reviewDeadline: new Date(item.reviewDeadline).toISOString(), placementDeadline: item.placementDeadline ? new Date(item.placementDeadline).toISOString() : null, needsReview: item.needsReview })),
+      notes: state.notes.map((note) => ({ ...moderationNote(note), aiReview: note.aiReview || { status: "not_checked", reason: "", severity: "none" } })),
+      submissions: state.submissions.map((item) => ({ id: item.id, text: item.note.text, displayName: item.note.displayName, author: item.note.ownerUsername || "Guest", state: item.state, submittedAt: new Date(item.submittedAt).toISOString(), reviewDeadline: new Date(item.reviewDeadline).toISOString(), placementDeadline: item.placementDeadline ? new Date(item.placementDeadline).toISOString() : null, needsReview: item.needsReview, aiReview: item.aiReview || { status: "not_checked", reason: "", severity: "none" } })),
       audit: audit.map((item) => ({ ...item })),
     };
   }
@@ -297,5 +320,5 @@ export function createNoteboardStore({ boardFile, auditFile, now = () => Date.no
     });
   }
 
-  return { load, list, submitGuest, getSubmission, replaceGuestPosition, validateCandidate, createSignedIn, deleteNote, moderateSubmission, markReviewed, listForModeration, clearAudit, clear, processDeadlines };
+  return { load, list, submitGuest, getSubmission, replaceGuestPosition, validateCandidate, createSignedIn, deleteNote, moderateSubmission, markReviewed, markAiReviewed, listForModeration, listAiChecks, setAiReview, clearAudit, clear, processDeadlines };
 }

@@ -67,8 +67,6 @@ test("community APIs protect authorship and owner moderation identity on loopbac
 
 test("AI moderation settings are owner-only and never return the saved API key", async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "local-community-ai-"));
-test("profile images require the right account, validate replacements, and are publicly served", async (t) => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "local-community-profile-api-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const host = await createHostServer({ port: 0, dataDirectory: directory, interfacesProvider: () => ({}) });
   t.after(() => host.close());
@@ -133,6 +131,14 @@ test("AI checks recover from provider outage and remain private to host moderati
   assert.equal(reviewed.response.status, 200);
   const moderation = await request("/api/admin/moderation/feed", "GET", undefined, ownerCookie);
   assert.equal(moderation.data.posts[0].aiReview.status, "reviewed");
+});
+
+test("profile images require the right account, validate replacements, and are publicly served", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "local-community-profile-api-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const host = await createHostServer({ port: 0, dataDirectory: directory, interfacesProvider: () => ({}) });
+  t.after(() => host.close());
+  await host.start();
   const base = `http://127.0.0.1:${host.port}`;
   const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0]);
   async function upload(url, buffer, type, cookie = "") {
