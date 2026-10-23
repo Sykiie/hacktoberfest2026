@@ -13,11 +13,11 @@ Requirements: Node.js 20 or later, the project dependencies, and a computer conn
 2. From the project folder, install dependencies with `npm install`.
 3. Build the React interface with `npm run build`.
 4. Start the app with `npm start`. Allow Node.js through the computer's firewall on the private network if prompted.
-5. Open the printed admin address, `http://127.0.0.1:3000/admin`, on the host computer.
+5. Open `http://127.0.0.1:3000/` (or `/admin`) on the host computer to reach the admin screen.
 6. Sign in on the host computer with the fresh-install default password `locomi`. After signing in, open the **Security** tab and change the password to one with at least 10 characters. The host stores only a salted password hash in its local `data/owner.json` file. Existing installations keep their saved password when updated.
 7. Select **Enable guest hosting** when guests should be able to connect. The admin screen then shows the current join URL and QR code.
 8. Guests connected to the venue network can scan the QR code or open the URL. The first screen asks them to sign in, create a venue-local account, or continue as a guest. After choosing, they enter the community with separate **Shared Feed** and **Noteboard** tabs. Returning signed-in users go directly to the community.
-9. Select **Disable guest hosting** to close guest access. The local admin page and guest preview at `http://127.0.0.1:3000/` remain available on the host computer.
+9. Select **Disable guest hosting** to close guest access. The local admin page remains available on the host computer; the guest preview is at `http://127.0.0.1:3000/guest`.
 10. Stop the app with `Ctrl+C` when finished. Guest hosting starts disabled each time the app is restarted, so sign in and enable it again when needed.
 
 The default port is `3000`. If it is already in use, choose another available port before starting the app. In PowerShell, run `$env:PORT=3100; npm start`; in Command Prompt, run `set PORT=3100 && npm start`. Use the selected port in the local admin address.
