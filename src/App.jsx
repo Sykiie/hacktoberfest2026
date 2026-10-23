@@ -10,6 +10,21 @@ async function requestJson(url, options = {}) {
   return data;
 }
 
+function initials(name = "") {
+  const words = String(name).trim().split(/\s+/).filter(Boolean);
+  return (words.length > 1 ? words.slice(0, 2).map((word) => word[0]) : [words[0]?.[0] || "?"]).join("").toUpperCase();
+}
+
+function Avatar({ src, name, anonymous = false, className = "avatar-dot" }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+  return <div className={className} aria-hidden="true">{src && !anonymous && !failed ? <img src={src} alt="" onError={() => setFailed(true)} /> : initials(anonymous ? "A" : name)}</div>;
+}
+
+function memberImageUrl(username) {
+  return `/api/profile-images/members/${encodeURIComponent(username.toLowerCase())}`;
+}
+
 function GuestWelcome() {
   const [screen, setScreen] = useState("login");
   const [username, setUsername] = useState("");
@@ -31,6 +46,8 @@ function GuestWelcome() {
   const [communityTab, setCommunityTab] = useState("feed");
   const [enabledModules, setEnabledModules] = useState([]);
   const [venueName, setVenueName] = useState("LOCAL COMMUNITY");
+  const [venueImageUrl, setVenueImageUrl] = useState("/api/profile-images/venue");
+  const [profileImageError, setProfileImageError] = useState("");
   const [notes, setNotes] = useState([]);
   const [noteText, setNoteText] = useState("");
   const [noteName, setNoteName] = useState("");
@@ -50,7 +67,7 @@ function GuestWelcome() {
     requestJson("/api/account/session")
       .then((result) => {
         if (!active) return;
-        setUser(result.user);
+        setUser(result.user ? { ...result.user, profileImageUrl: memberImageUrl(result.user.username) } : null);
         if (result.user) setNoteName(result.user.username);
         if (result.user) setScreen("feed");
       })
@@ -68,7 +85,8 @@ function GuestWelcome() {
   const refreshFeed = useCallback(async () => {
     try {
       const result = await requestJson("/api/community/feed");
-      setPosts(result.posts);
+      const version = Date.now();
+      setPosts(result.posts.map((post) => ({ ...post, profileImageUrl: post.profileImageUrl ? `${post.profileImageUrl}?v=${version}` : null, comments: post.comments.map((comment) => ({ ...comment, profileImageUrl: comment.profileImageUrl ? `${comment.profileImageUrl}?v=${version}` : null })) })));
       setFeedError("");
     } catch (reason) {
       setFeedError(reason.message);
@@ -79,16 +97,30 @@ function GuestWelcome() {
     try {
       const { community } = await requestJson("/api/community/config");
       setVenueName(community?.venueName || "LOCAL COMMUNITY");
+      setVenueImageUrl(`${community?.profileImageUrl || "/api/profile-images/venue"}?v=${Date.now()}`);
       const modules = community?.enabledModules || [];
       setEnabledModules(modules);
       setCommunityTab((current) => modules.includes(current) ? current : modules[0] || "");
     } catch { /* Keep the current guest view if the community configuration is temporarily unavailable. */ }
   }, []);
 
+  async function updateMemberImage(file) {
+    setProfileImageError("");
+    try {
+      if (file) {
+        const response = await fetch("/api/account/profile-image", { method: "PUT", headers: { "Content-Type": file.type }, body: file });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || "Could not save the profile image.");
+      } else await requestJson("/api/account/profile-image", { method: "DELETE" });
+      setUser((current) => ({ ...current, profileImageUrl: `${memberImageUrl(current.username)}?v=${Date.now()}` }));
+    } catch (reason) { setProfileImageError(reason.message); }
+  }
+
   const refreshNoteboard = useCallback(async () => {
     try {
       const result = await requestJson("/api/community/noteboard");
-      setNotes(result.notes);
+      const version = Date.now();
+      setNotes(result.notes.map((note) => ({ ...note, profileImageUrl: note.profileImageUrl ? `${note.profileImageUrl}?v=${version}` : null })));
       setNoteError("");
     } catch (reason) { setNoteError(reason.message); }
   }, []);
@@ -170,9 +202,9 @@ function GuestWelcome() {
         body: JSON.stringify({ username, password }),
       });
       if (screen === "login") {
-        setUser(result.user);
+        setUser({ ...result.user, profileImageUrl: memberImageUrl(result.user.username) });
       } else {
-        setUser(result.user);
+        setUser({ ...result.user, profileImageUrl: memberImageUrl(result.user.username) });
       }
       setNoteName(result.user.username);
       setPassword("");
@@ -297,8 +329,7 @@ function GuestWelcome() {
   if (screen !== "feed") {
     return <main className="guest-page entry-page">
       <section className="guest-card entry-card">
-        <div className="guest-mark" aria-hidden="true">LC</div>
-        <p className="eyebrow">{venueName}</p>
+        <div className="entry-venue"><Avatar src={`${venueImageUrl}?v=${encodeURIComponent(venueName)}`} name={venueName} className="guest-mark entry-venue-avatar" /><p className="entry-venue-name">{venueName}</p></div>
         {checkingSession ? <><h1>Checking sign-in…</h1><p className="guest-message">Just a moment.</p></> : <>
           <h1>{screen === "register" ? "Create an account" : "Sign in to the community"}</h1>
           <form className="guest-account-form" onSubmit={submitAccount}>
@@ -328,7 +359,7 @@ function GuestWelcome() {
 
   return (
     <main className="guest-page feed-page">
-      <header className="feed-topbar"><div className="feed-brand"><div className="guest-mark" aria-hidden="true">LC</div><div><p className="eyebrow">{venueName}</p><strong>{communityTab === "feed" ? "Community feed" : communityTab === "noteboard" ? "Noteboard" : "Community"}</strong></div></div><div className="feed-account" role="status">{user ? <>Signed in as <strong>{user.username}</strong><button className="text-button" type="button" onClick={signOut}>Sign out</button></> : <>Continuing as guest<button className="text-button" type="button" onClick={() => { setError(""); setScreen("login"); }}>Sign in</button></>}</div></header>
+      <header className="feed-topbar"><div className="feed-brand"><Avatar src={`${venueImageUrl}?v=${encodeURIComponent(venueName)}`} name={venueName} className="guest-mark venue-avatar" /><div><p className="eyebrow">{venueName}</p><strong>{communityTab === "feed" ? "Community feed" : communityTab === "noteboard" ? "Noteboard" : "Community"}</strong></div></div><div className="feed-account" role="status">{user ? <><Avatar src={user.profileImageUrl} name={user.username} /><span>Signed in as <strong>{user.username}</strong></span><label className="text-button file-button">Profile image<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => updateMemberImage(event.target.files?.[0])} /></label><button className="text-button" type="button" onClick={() => updateMemberImage(null)}>Remove image</button><button className="text-button" type="button" onClick={signOut}>Sign out</button></> : <>Continuing as guest<button className="text-button" type="button" onClick={() => { setError(""); setScreen("login"); }}>Sign in</button></>}{profileImageError && <span className="error-message" role="alert">{profileImageError}</span>}</div></header>
       {enabledModules.length > 0 && <nav className="community-module-tabs" role="tablist" aria-label="Community modules">
         {enabledModules.includes("feed") && <button type="button" role="tab" aria-selected={communityTab === "feed"} className={communityTab === "feed" ? "module-tab module-tab-active" : "module-tab"} onClick={() => setCommunityTab("feed")}>Shared Feed</button>}
         {enabledModules.includes("noteboard") && <button type="button" role="tab" aria-selected={communityTab === "noteboard"} className={communityTab === "noteboard" ? "module-tab module-tab-active" : "module-tab"} onClick={() => setCommunityTab("noteboard")}>Noteboard</button>}
@@ -344,11 +375,11 @@ function GuestWelcome() {
         {feedError && <p className="error-message feed-error" role="alert">{feedError}</p>}
         {posts.length === 0 && !feedError && <div className="feed-empty"><span aria-hidden="true">✳</span><h3>It’s quiet here</h3><p>Start the conversation with a post.</p></div>}
         {posts.map((post) => <article className="post-card" key={post.id}>
-          <div className="post-meta"><div className="avatar-dot" aria-hidden="true">{post.anonymous ? "A" : post.author.slice(0, 1).toUpperCase()}</div><div><strong>{post.author}</strong><time>{new Date(post.createdAt).toLocaleString()}</time></div>{post.updatedAt && <span className="edited-label">Edited</span>}</div>
+          <div className="post-meta"><Avatar src={post.profileImageUrl} name={post.author} anonymous={post.anonymous} /><div><strong>{post.author}</strong><time>{new Date(post.createdAt).toLocaleString()}</time></div>{post.updatedAt && <span className="edited-label">Edited</span>}</div>
           {editing?.postId === post.id && !editing.commentId ? <form className="edit-form" onSubmit={saveEdit}><textarea maxLength={2000} value={editText} onChange={(event) => setEditText(event.target.value)} required /><div><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit">Save</button></div></form> : <p className="post-text">{post.text}</p>}
           {post.canEdit && <div className="item-actions"><button type="button" onClick={() => { setEditing({ postId: post.id }); setEditText(post.text); }}>Edit</button><button type="button" onClick={() => deleteItem(post.id)}>Delete</button></div>}
           <div className="comments"><p className="comments-title">Comments <span>{post.comments.length}</span></p>
-            {post.comments.map((comment) => <div className="comment" key={comment.id}><div className="comment-body"><strong>{comment.author}</strong><p>{comment.text}</p>{comment.updatedAt && <small>Edited</small>}{comment.canEdit && <div className="item-actions"><button type="button" onClick={() => { setEditing({ postId: post.id, commentId: comment.id }); setEditText(comment.text); }}>Edit</button><button type="button" onClick={() => deleteItem(post.id, comment.id)}>Delete</button></div>}</div></div>)}
+            {post.comments.map((comment) => <div className="comment" key={comment.id}><Avatar src={comment.profileImageUrl} name={comment.author} anonymous={comment.anonymous} /><div className="comment-body"><strong>{comment.author}</strong><p>{comment.text}</p>{comment.updatedAt && <small>Edited</small>}{comment.canEdit && <div className="item-actions"><button type="button" onClick={() => { setEditing({ postId: post.id, commentId: comment.id }); setEditText(comment.text); }}>Edit</button><button type="button" onClick={() => deleteItem(post.id, comment.id)}>Delete</button></div>}</div></div>)}
             <form className="comment-form" onSubmit={(event) => publishComment(event, post.id)}><input maxLength={2000} aria-label="Write a comment" placeholder={user ? "Add a comment…" : "Add an anonymous comment…"} value={commentDrafts[post.id] || ""} onChange={(event) => setCommentDrafts((items) => ({ ...items, [post.id]: event.target.value }))} required />{user && <label className="toggle-label compact-toggle"><input type="checkbox" checked={Boolean(commentAnonymous[post.id])} onChange={(event) => setCommentAnonymous((items) => ({ ...items, [post.id]: event.target.checked }))} /> Anonymous</label>}<button type="submit" aria-label="Publish comment">↗</button></form>
           </div>
         </article>)}
@@ -359,7 +390,7 @@ function GuestWelcome() {
         <div className="noteboard-canvas" role="application" aria-label="Click to choose where to place a note" onClick={chooseNotePosition}>
           <div className="board-grid" aria-hidden="true" />
           {notes.map((note, index) => <article key={note.id} className="sticky-note" style={{ left: `${note.x * 100}%`, top: `${note.y * 100}%`, zIndex: notes.length - index }}>
-            <small>{note.displayName}</small><p>{note.text}</p>{note.showDate && <time>{new Date(note.createdAt).toLocaleDateString()}</time>}
+            <small className="sticky-author"><Avatar src={note.profileImageUrl} name={note.displayName} className="sticky-avatar" />{note.displayName}</small><p>{note.text}</p>{note.showDate && <time>{new Date(note.createdAt).toLocaleDateString()}</time>}
             {note.canDelete && <button type="button" className="sticky-delete" onClick={(event) => { event.stopPropagation(); removeNote(note); }} disabled={currentTime < noteCooldownUntil} title={currentTime < noteCooldownUntil ? "Posting cooldown is active" : "Delete your note"}>×</button>}
           </article>)}
           {(noteText.trim() || replacementPreview) && <article className="sticky-note sticky-note-preview" style={{ left: `${notePosition.x * 100}%`, top: `${notePosition.y * 100}%` }}><small>{replacementPreview?.displayName ?? noteName}</small><p>{replacementPreview?.text || noteText}</p>{(replacementPreview?.showDate ?? showNoteDate) && <time>{new Date().toLocaleDateString()}</time>}</article>}
@@ -490,10 +521,32 @@ function AdminFeedModeration() {
 function AccountFreezeList({ accounts, busyId, onToggle }) {
   if (!accounts.length) return <p className="field-hint">No community accounts have been created yet.</p>;
   return <div className="account-freeze-list">{accounts.map((account) => <div className="account-freeze-row" key={account.username}>
-    <strong>{account.username}</strong>
+    <div className="account-identity"><Avatar src={account.profileImageUrl} name={account.username} /><strong>{account.username}</strong></div>
     {account.frozenUntil && <span>Frozen until {new Date(account.frozenUntil).toLocaleString()}</span>}
     <button className="text-button" type="button" disabled={busyId === account.username} onClick={() => onToggle(account)}>{account.frozenUntil ? "Unfreeze" : "Freeze 24 hours"}</button>
   </div>)}</div>;
+}
+
+function VenueProfileImageSettings({ venueName }) {
+  const [imageUrl, setImageUrl] = useState("/api/profile-images/venue");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function update(file) {
+    setBusy(true);
+    setError("");
+    try {
+      if (file) {
+        const response = await fetch("/api/admin/community/profile-image", { method: "PUT", headers: { "Content-Type": file.type }, body: file });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || "Could not save the venue image.");
+      } else await requestJson("/api/admin/community/profile-image", { method: "DELETE" });
+      setImageUrl(`/api/profile-images/venue?v=${Date.now()}`);
+    } catch (reason) { setError(reason.message); }
+    finally { setBusy(false); }
+  }
+
+  return <section className="admin-card profile-image-card"><div><p className="eyebrow">COMMUNITY IDENTITY</p><h2>Venue profile image</h2><p className="card-copy">Shown to visitors across the community. PNG, JPEG, or WebP, up to 2 MB.</p></div><Avatar src={imageUrl} name={venueName} className="venue-preview-avatar" /><label className="secondary-button file-button">Upload or replace<input type="file" accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={(event) => { update(event.target.files?.[0]); event.target.value = ""; }} /></label><button type="button" className="text-button" onClick={() => update(null)} disabled={busy}>Remove image</button>{error && <p className="error-message" role="alert">{error}</p>}</section>;
 }
 
 function AdminAccountModeration() {
@@ -915,6 +968,7 @@ function AdminDashboard({ initialStatus, onLogout }) {
       </section>}
 
       {activeTab === "community" && <section id="host-panel-community" className="admin-tab-panel" role="tabpanel" aria-labelledby="host-tab-community" tabIndex={0}>
+      {status.communityExists && communityLoaded && <VenueProfileImageSettings venueName={community?.venueName || "Community"} />}
       <section className="admin-card host-community-card"><div><p className="eyebrow">HOST PARTICIPATION</p><h2>Join the community feed</h2><p className="card-copy">To publish publicly, open the shared feed and sign in with a regular community account. Admin credentials stay private.</p></div><a className="secondary-button" href="/" target="_blank" rel="noreferrer">Open community feed ↗</a></section>
       <AdminModeration />
       </section>}

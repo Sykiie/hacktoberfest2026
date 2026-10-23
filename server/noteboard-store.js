@@ -167,7 +167,7 @@ export function createNoteboardStore({ boardFile, auditFile, now = () => Date.no
     return point;
   }
   function publicNote(note, viewerKey, includeModerationState = false) {
-    return { id: note.id, text: note.text, displayName: note.displayName, x: note.x, y: note.y, createdAt: note.createdAt, showDate: note.showDate !== false, ...(includeModerationState ? { needsReview: Boolean(note.needsReview) } : {}), canDelete: Boolean(viewerKey && note.ownerKey === viewerKey) };
+    return { id: note.id, text: note.text, displayName: note.displayName, profileImageUrl: note.ownerKey ? `/api/profile-images/members/${encodeURIComponent(note.ownerKey)}` : null, x: note.x, y: note.y, createdAt: note.createdAt, showDate: note.showDate !== false, ...(includeModerationState ? { needsReview: Boolean(note.needsReview) } : {}), canDelete: Boolean(viewerKey && note.ownerKey === viewerKey) };
   }
   function moderationNote(note) {
     return { ...publicNote(note, null, true), author: note.ownerUsername || "Guest", ownerUsername: note.ownerUsername || null };

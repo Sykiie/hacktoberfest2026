@@ -47,7 +47,9 @@ footer span { padding: 0 5px; }
 .guest-page { display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(ellipse at 50% 42%, #fff 0, #f7f7f2 68%); }
 .entry-page { justify-content: center; }
 .entry-card { max-width: 460px; padding: 38px 42px 32px; }
-.entry-card > .eyebrow { font-size: 12px; letter-spacing: .1em; }
+.entry-venue { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-bottom: 20px; }
+.entry-venue-avatar { width: 64px; height: 64px; flex: 0 0 64px; margin: 0; overflow: hidden; border-radius: 20px; }
+.entry-venue-name { max-width: 100%; margin: 0; color: #465237; font-size: clamp(17px, 2vw, 20px); font-weight: 650; line-height: 1.25; letter-spacing: -.025em; overflow-wrap: anywhere; }
 .entry-card h1 { margin-bottom: 17px; font-size: clamp(30px, 5vw, 38px); }
 .entry-card .guest-account-form { margin-top: 0; }
 .entry-card .guest-account-switch { margin-top: 14px; }
@@ -199,6 +201,15 @@ footer span { padding: 0 5px; }
 .post-meta { display: flex; align-items: center; gap: 10px; color: #39412d; font-size: 12px; }
 .post-meta time { display: block; margin-top: 3px; color: #909489; font-size: 10px; }
 .avatar-dot { display: grid; place-items: center; width: 33px; height: 33px; border-radius: 12px; background: #eef2e4; color: #647442; font-size: 12px; font-weight: 700; }
+.avatar-dot img, .guest-mark img, .venue-preview-avatar img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.venue-avatar { overflow: hidden; flex: 0 0 40px; }
+.comment > .avatar-dot { flex: 0 0 28px; width: 28px; height: 28px; border-radius: 9px; font-size: 10px; }
+.file-button { position: relative; overflow: hidden; cursor: pointer; }
+.file-button input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.profile-image-card { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; }
+.profile-image-card > div:first-child { flex: 1; }
+.venue-preview-avatar { display: grid; place-items: center; width: 58px; height: 58px; flex: 0 0 58px; overflow: hidden; border-radius: 17px; background: #eef2e4; color: #647442; font-weight: 700; }
+.feed-account > .avatar-dot { flex: 0 0 30px; width: 30px; height: 30px; border-radius: 10px; }
 .edited-label { margin-left: auto; color: #929689; font-size: 10px; }
 .post-text { margin: 14px 0; color: #34392f; font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; white-space: pre-wrap; }
 .item-actions { display: flex; justify-content: flex-end; gap: 10px; }
@@ -298,6 +309,8 @@ footer span { padding: 0 5px; }
 .moderation-note-row small, .audit-row time { color: #929689; font-size: 9px; }
 .review-badge { display: inline-flex; padding: 3px 7px; border-radius: 999px; background: #f9ead0; color: #8b6026; font-size: 9px; font-weight: 700; }
 .account-freeze-row > span, .audit-row span { color: #858a7d; }
+.account-identity { display: flex; align-items: center; gap: 9px; min-width: 0; flex: 1; }
+.account-identity > .avatar-dot { flex: 0 0 34px; width: 34px; height: 34px; border-radius: 11px; }
 .account-freeze-row .text-button { margin: 0; white-space: nowrap; }
 .audit-row { align-items: flex-start; }
 .audit-row > div { min-width: 0; display: grid; gap: 4px; }
