@@ -1,9 +1,9 @@
 # hacktoberfest2026
 Project for Hacktoberfest 2026 Competition from team Gemma&Us
 
-# Local Community
+# Locomi
 
-Local Community is an open-source, self-hosted web app for a temporary online community around a physical space. Guests on the venue's local network can use the Shared Feed and Noteboard modules. They can publish posts and comments, or place short notes on a shared visual board. The host can privately reveal account identities and moderate content from the loopback-only admin interface.
+Locomi is an open-source, self-hosted web app for a temporary online community around a physical space. Guests on the venue's local network can use the Shared Feed and Noteboard modules. They can publish posts and comments, or place short notes on a shared visual board. The host can privately reveal account identities and moderate content from the loopback-only admin interface.
 
 ## Host setup
 

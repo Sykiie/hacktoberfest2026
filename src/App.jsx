@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import projectLogo from "./assets/project-logo.jpg";
 
 async function requestJson(url, options = {}) {
   const response = await fetch(url, {
@@ -70,7 +71,7 @@ function GuestWelcome() {
   const [checkingSession, setCheckingSession] = useState(true);
   const [communityTab, setCommunityTab] = useState("feed");
   const [enabledModules, setEnabledModules] = useState([]);
-  const [venueName, setVenueName] = useState("LOCAL COMMUNITY");
+  const [venueName, setVenueName] = useState("LOCOMI");
   const [venueImageUrl, setVenueImageUrl] = useState("/api/profile-images/venue");
   const [profileImageError, setProfileImageError] = useState("");
   const [pendingProfileImage, setPendingProfileImage] = useState(null);
@@ -123,7 +124,7 @@ function GuestWelcome() {
   const refreshCommunityConfig = useCallback(async () => {
     try {
       const { community } = await requestJson("/api/community/config");
-      setVenueName(community?.venueName || "LOCAL COMMUNITY");
+      setVenueName(community?.venueName || "LOCOMI");
       setVenueImageUrl(`${community?.profileImageUrl || "/api/profile-images/venue"}?v=${Date.now()}`);
       const modules = community?.enabledModules || [];
       setEnabledModules(modules);
@@ -388,7 +389,14 @@ function GuestWelcome() {
 
   return (
     <main className="guest-page feed-page">
-      <header className="feed-topbar"><div className="feed-brand"><Avatar src={`${venueImageUrl}?v=${encodeURIComponent(venueName)}`} name={venueName} className="guest-mark venue-avatar" /><div><p className="eyebrow">{venueName}</p><strong>{communityTab === "feed" ? "Community feed" : communityTab === "noteboard" ? "Noteboard" : "Community"}</strong></div></div><div className="feed-account" role="status">{user ? <><Avatar src={user.profileImageUrl} name={user.username} /><span>Signed in as <strong>{user.username}</strong></span><label className="text-button file-button">Profile image<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) setPendingProfileImage(file); event.target.value = ""; }} /></label><button className="text-button" type="button" onClick={() => updateMemberImage(null)}>Remove image</button><button className="text-button" type="button" onClick={signOut}>Sign out</button></> : <>Continuing as guest<button className="text-button" type="button" onClick={() => { setError(""); setScreen("login"); }}>Sign in</button></>}{profileImageError && <span className="error-message" role="alert">{profileImageError}</span>}</div></header>
+      <header className="feed-topbar"><div className="feed-brand"><Avatar src={`${venueImageUrl}?v=${encodeURIComponent(venueName)}`} name={venueName} className="guest-mark venue-avatar" /><div><p className="eyebrow">{venueName}</p><strong>{communityTab === "feed" ? "Community feed" : communityTab === "noteboard" ? "Noteboard" : "Community"}</strong></div></div><div className="feed-account">{user ? <details className="member-account-menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false; }} onKeyDown={(event) => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}>
+        <summary className="member-menu-trigger"><Avatar src={user.profileImageUrl} name={user.username} /><span>Signed in as <strong>{user.username}</strong></span><span className="member-menu-chevron" aria-hidden="true">⌄</span></summary>
+        <div className="member-menu-panel">
+          <label className="member-menu-item file-button">Profile image<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) setPendingProfileImage(file); event.currentTarget.closest("details").open = false; event.target.value = ""; }} /></label>
+          <button className="member-menu-item" type="button" onClick={(event) => { event.currentTarget.closest("details").open = false; updateMemberImage(null); }}>Remove image</button>
+          <button className="member-menu-item member-menu-signout" type="button" onClick={(event) => { event.currentTarget.closest("details").open = false; signOut(); }}>Sign out</button>
+        </div>
+      </details> : <>Continuing as guest<button className="text-button" type="button" onClick={() => { setError(""); setScreen("login"); }}>Sign in</button></>}{profileImageError && <span className="error-message" role="alert">{profileImageError}</span>}</div></header>
       {pendingProfileImage && <ProfileImageCrop file={pendingProfileImage} onCancel={() => setPendingProfileImage(null)} onConfirm={updateMemberImage} busy={profileImageBusy} />}
       {enabledModules.length > 0 && <nav className="community-module-tabs" role="tablist" aria-label="Community modules">
         {enabledModules.includes("feed") && <button type="button" role="tab" aria-selected={communityTab === "feed"} className={communityTab === "feed" ? "module-tab module-tab-active" : "module-tab"} onClick={() => setCommunityTab("feed")}>Shared Feed</button>}
@@ -469,7 +477,7 @@ function AdminLogin({ onAuthenticated }) {
   return (
     <main className="admin-page">
       <section className="admin-card auth-card">
-        <div className="brand-mark" aria-hidden="true">LC</div>
+        <div className="admin-login-brand"><img className="brand-mark" src={projectLogo} alt="" /><strong>Locomi</strong></div>
         <p className="eyebrow">HOST COMPUTER · LOCAL ADMIN</p>
         <h1>Admin sign in</h1>
         <p className="auth-description">Sign in on the host computer to manage local guest access.</p>
@@ -954,24 +962,27 @@ function AdminDashboard({ initialStatus, onLogout }) {
   return (
     <main className="admin-page dashboard-page">
       <header className="admin-header">
-        <div className="brand-mark" aria-hidden="true">LC</div>
-        <div><p className="eyebrow">LOCAL COMMUNITY</p><p className="brand-subtitle">Host controls</p></div>
-        <span className="host-status"><i className={status.hostingEnabled ? "is-on" : ""} />{status.hostingEnabled ? "Guest hosting is on" : "Guest hosting is off"}</span>
-        <button className="quiet-button" type="button" onClick={logout}>Sign out</button>
+        <div className="admin-brand">
+          <img className="brand-mark" src={projectLogo} alt="Locomi logo" />
+          <div><p className="eyebrow">LOCOMI</p><p className="brand-subtitle">Host controls</p></div>
+        </div>
+        <div className="admin-tabs host-primary-tabs" role="tablist" aria-label="Host controls" onKeyDown={moveTab}>
+          {adminTabs.map(({ id, label }) => <button key={id} id={`host-tab-${id}`} className={`admin-tab ${activeTab === id ? "admin-tab-active" : ""}`} type="button" role="tab" aria-selected={activeTab === id} aria-controls={`host-panel-${id}`} tabIndex={activeTab === id ? 0 : -1} onClick={() => setActiveTab(id)}>{label}</button>)}
+        </div>
+        <div className="admin-header-actions">
+          <span className="host-status"><i className={status.hostingEnabled ? "is-on" : ""} />{status.hostingEnabled ? "Guest hosting is on" : "Guest hosting is off"}</span>
+          <button className="quiet-button" type="button" onClick={logout}>Sign out</button>
+        </div>
       </header>
 
-      <section className="dashboard-intro">
+      {activeTab === "hosting" && <section className="dashboard-intro">
         <p className="eyebrow">VENUE HOST</p>
         <h1>Your space, on your network.</h1>
         <p>Turn on guest access when you’re ready. Your admin screen stays available on this computer either way.</p>
-      </section>
-
-      <div className="admin-tabs" role="tablist" aria-label="Host controls" onKeyDown={moveTab}>
-        {adminTabs.map(({ id, label }) => <button key={id} id={`host-tab-${id}`} className={`admin-tab ${activeTab === id ? "admin-tab-active" : ""}`} type="button" role="tab" aria-selected={activeTab === id} aria-controls={`host-panel-${id}`} tabIndex={activeTab === id ? 0 : -1} onClick={() => setActiveTab(id)}>{label}</button>)}
-      </div>
+      </section>}
 
       {activeTab === "hosting" && <section id="host-panel-hosting" className="admin-tab-panel" role="tabpanel" aria-labelledby="host-tab-hosting" tabIndex={0}>
-      <div className="admin-grid">
+      <div className={`admin-grid hosting-overview-grid ${status.hostingEnabled ? "hosting-open" : "hosting-closed"}`}>
         <section className="admin-card hosting-card">
           <div className="card-heading">
             <div><p className="eyebrow">GUEST ACCESS</p><h2>{status.hostingEnabled ? "Your community is open" : "Your community is private"}</h2></div>
@@ -1008,9 +1019,7 @@ function AdminDashboard({ initialStatus, onLogout }) {
           {error && <p className="error-message" role="alert">{error}</p>}
           <div className="hosting-footnote">Hosting resets to off whenever this app restarts.</div>
         </section>
-      </div>
-      {status.hostingEnabled && (
-        <section className="admin-card join-panel">
+        {status.hostingEnabled && <section className="admin-card join-panel">
           <div className="card-heading">
             <div><p className="eyebrow">SHARE WITH GUESTS</p><h2>Scan to open</h2></div>
             <span className="wifi-icon" aria-hidden="true">⌁</span>
@@ -1019,19 +1028,23 @@ function AdminDashboard({ initialStatus, onLogout }) {
             <div className="qr-frame"><img src={join.qrDataUrl} alt="QR code for the guest community" /></div>
             <p className="scan-hint">Guests must be connected to the venue Wi-Fi</p>
             <div className="link-row"><code>{join.url}</code><button className="copy-button" type="button" onClick={copyLink}>{copyState}</button></div>
+            <a className="secondary-button qr-download-button" href={join.qrDataUrl} download="community-qr-code.png">Save QR code</a>
           </> : <div className="empty-state" role="status">Preparing the current guest link…</div>}
-        </section>
-      )}
+        </section>}
+      </div>
       <aside className="notice"><span className="notice-icon" aria-hidden="true">i</span><p><strong>Connection depends on your venue network.</strong> A firewall or Wi-Fi client isolation can block guest devices. Network access confirms reachability, not physical presence.</p></aside>
       </section>}
 
       {activeTab === "community" && <section id="host-panel-community" className="admin-tab-panel" role="tabpanel" aria-labelledby="host-tab-community" tabIndex={0}>
-      {status.communityExists && communityLoaded && <VenueProfileImageSettings venueName={community?.venueName || "Community"} />}
-      <section className="admin-card host-community-card"><div><p className="eyebrow">HOST PARTICIPATION</p><h2>Join the community feed</h2><p className="card-copy">To publish publicly, open the shared feed and sign in with a regular community account. Admin credentials stay private.</p></div><a className="secondary-button" href="/" target="_blank" rel="noreferrer">Open community feed ↗</a></section>
+      <div className={`admin-grid community-settings-grid ${status.communityExists && communityLoaded ? "community-settings-ready" : "community-settings-empty"}`}>
+        {status.communityExists && communityLoaded && <VenueProfileImageSettings venueName={community?.venueName || "Community"} />}
+        <section className="admin-card host-community-card"><div><p className="eyebrow">HOST PARTICIPATION</p><h2>Join the community feed</h2><p className="card-copy">To publish publicly, open the shared feed and sign in with a regular community account. Admin credentials stay private.</p></div><a className="secondary-button" href="/" target="_blank" rel="noreferrer">Open community feed ↗</a></section>
+      </div>
       <AdminModeration />
       </section>}
 
       {activeTab === "security" && <section id="host-panel-security" className="admin-tab-panel" role="tabpanel" aria-labelledby="host-tab-security" tabIndex={0}>
+      <div className="admin-grid security-settings-grid">
       <section className="admin-card password-card">
         <p className="eyebrow">OWNER SECURITY</p>
         <h2>Change admin password</h2>
@@ -1047,6 +1060,7 @@ function AdminDashboard({ initialStatus, onLogout }) {
         </form>
       </section>
       <AiProviderSettings />
+      </div>
       </section>}
 
       {communityPrompt && <div className="community-modal-backdrop" role="presentation">
