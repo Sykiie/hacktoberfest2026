@@ -247,6 +247,10 @@ footer span { padding: 0 5px; }
 .moderation-lock { margin: 6px 0 12px auto; }
 .moderation-explainer { margin: -4px 0 14px; color: #747a6d; font-size: 11px; line-height: 1.6; }
 .moderation-post { margin-top: 12px; padding: 14px; border: 1px solid #eceee5; border-radius: 12px; }
+.moderation-post.ai-flagged { border: 2px solid #c64b3f; background: #fff6f3; box-shadow: 0 0 0 3px #c64b3f18; }
+.moderation-post.ai-flagged::before { content: "AI FLAGGED · HOST REVIEW"; display: inline-block; margin: 0 0 10px; padding: 4px 8px; border-radius: 6px; background: #c64b3f; color: #fff; font-size: 9px; font-weight: 800; letter-spacing: .08em; }
+.comment.ai-flagged { display: block; border: 2px solid #c64b3f; background: #fff6f3; box-shadow: 0 0 0 3px #c64b3f18; }
+.ai-flag-banner { display: inline-block; margin: 0 0 8px; padding: 4px 8px; border-radius: 6px; background: #c64b3f; color: #fff; font-size: 9px; letter-spacing: .08em; }
 .moderation-post .post-meta { justify-content: space-between; }
 .moderation-comment { margin: 10px 0 0 14px; padding: 11px; border-left: 2px solid #dce4c8; background: #f8f9f5; color: #48503a; font-size: 11px; }
 .moderation-comment > p { margin: 5px 0 8px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -305,6 +309,7 @@ footer span { padding: 0 5px; }
 .moderation-section { margin: 16px 0; padding: 15px; border: 1px solid #e7e8dd; border-radius: 14px; background: #fff; }
 .moderation-note-row, .account-freeze-row, .audit-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid #eef0e9; color: #555d4b; font-size: 11px; }
 .moderation-note-row > div:first-child { min-width: 0; flex: 1; }
+.moderation-note-row.ai-flagged { padding: 12px; margin-top: 8px; border: 2px solid #c64b3f; border-radius: 10px; background: #fff6f3; box-shadow: 0 0 0 3px #c64b3f18; }
 .moderation-note-row p, .audit-row p { margin: 6px 0; color: #41473a; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .moderation-note-row small, .audit-row time { color: #929689; font-size: 9px; }
 .review-badge { display: inline-flex; padding: 3px 7px; border-radius: 999px; background: #f9ead0; color: #8b6026; font-size: 9px; font-weight: 700; }
