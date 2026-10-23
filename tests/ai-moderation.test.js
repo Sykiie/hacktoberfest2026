@@ -3,7 +3,15 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { classifyText, createAiSettingsStore, normalizeProviderSettings, publicProviderSettings } from "../server/ai-moderation.js";
+import { AI_BATCH_RESPONSE_TIMEOUT_MS, classifyBatch, classifyText, createAiSettingsStore, normalizeProviderSettings, publicProviderSettings } from "../server/ai-moderation.js";
+
+test("batch classifier applies the 60-second default timeout and aborts overdue requests", async () => {
+  assert.equal(AI_BATCH_RESPONSE_TIMEOUT_MS, 60000);
+  const settings = { provider: "openai-compatible", baseUrl: "https://api.example.com/v1", model: "test", apiKey: "secret" };
+  await assert.rejects(classifyBatch(settings, [{ id: "1", text: "content" }], async (_url, options) => new Promise((_resolve, reject) => {
+    options.signal.addEventListener("abort", () => reject(Object.assign(new Error("Request aborted"), { name: "AbortError" })), { once: true });
+  }), 15), { name: "AbortError" });
+});
 
 test("provider configuration requires credentials for cloud and keeps secrets out of public settings", () => {
   assert.throws(() => normalizeProviderSettings({ provider: "openai-compatible", baseUrl: "https://api.example.com/v1", model: "m" }), /API key/);

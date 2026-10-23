@@ -101,7 +101,7 @@ test("AI checks recover from provider outage and remain private to host moderati
       return { choices: [{ message: { content: JSON.stringify({ results: inputs.map(({ id }) => ({ id, flagged: true, severity: "high", reason: "Possible scam" })) }) } }] };
     } }
     : { ok: false, status: 503, json: async () => ({ error: { message: "Provider temporarily unavailable" } }) };
-  const host = await createHostServer({ port: 0, dataDirectory: directory, interfacesProvider: () => ({}), aiFetch, aiRetryBaseDelayMs: 20, aiRetryIntervalMs: 10 });
+  const host = await createHostServer({ port: 0, dataDirectory: directory, interfacesProvider: () => ({}), aiFetch, aiRetryBaseDelayMs: 20, aiRetryIntervalMs: 10, aiBatchWindowMs: 10 });
   t.after(async () => {
     await host.close();
     await rm(directory, { recursive: true, force: true });
@@ -137,6 +137,96 @@ test("AI checks recover from provider outage and remain private to host moderati
   assert.equal(reviewed.response.status, 200);
   const moderation = await request("/api/admin/moderation/feed", "GET", undefined, ownerCookie);
   assert.equal(moderation.data.posts[0].aiReview.status, "reviewed");
+});
+
+test("AI checks batch feed and noteboard items together and send a full batch immediately", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "local-community-ai-batch-"));
+  const batches = [];
+  const aiFetch = async (_url, options) => {
+    const prompt = JSON.parse(options.body).messages[0].content;
+    const inputs = JSON.parse(prompt.slice(prompt.indexOf("Items:\n") + 7));
+    batches.push(inputs);
+    return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ results: inputs.map(({ id }) => ({ id, flagged: false, severity: "none", reason: "" })) }) } }] }) };
+  };
+  const host = await createHostServer({ port: 0, dataDirectory: directory, interfacesProvider: () => ({}), aiFetch, aiRetryIntervalMs: 10000, aiBatchWindowMs: 1000 });
+  t.after(async () => { await host.close(); await rm(directory, { recursive: true, force: true }); });
+  await host.start();
+  const base = `http://127.0.0.1:${host.port}`;
+  const ownerCookie = await configureTestCommunity(base, ["feed", "noteboard"]);
+  const request = async (url, method, body, cookie = "") => fetch(`${base}${url}`, { method, headers: { "Content-Type": "application/json", ...(cookie ? { Cookie: cookie } : {}) }, body: JSON.stringify(body) });
+  await request("/api/admin/ai-settings", "PUT", { provider: "openai-compatible", baseUrl: "https://api.example.test/v1", model: "moderator", apiKey: "secret" }, ownerCookie);
+
+  for (let index = 0; index < 3; index += 1) {
+    const response = await request("/api/community/posts", "POST", { text: `Feed batch item ${index}` });
+    assert.equal(response.status, 201);
+  }
+  for (let index = 0; index < 2; index += 1) {
+    const response = await request("/api/community/noteboard", "POST", { text: `Board batch item ${index}`, displayName: "Guest", position: { x: 0.2 + index * 0.2, y: 0.2 } });
+    assert.equal(response.status, 201);
+  }
+  for (let attempt = 0; attempt < 50 && batches.length === 0; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(batches.length, 1);
+  assert.equal(batches[0].length, 5);
+  assert.equal(batches[0].filter(({ content }) => content.includes("Feed batch item")).length, 3);
+  assert.equal(batches[0].filter(({ content }) => content.includes("Board batch item")).length, 2);
+});
+
+test("AI checks wait for the batch window before sending a partial batch", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "local-community-ai-partial-batch-"));
+  let calls = 0;
+  const aiFetch = async (_url, options) => {
+    calls += 1;
+    const prompt = JSON.parse(options.body).messages[0].content;
+    const inputs = JSON.parse(prompt.slice(prompt.indexOf("Items:\n") + 7));
+    return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ results: inputs.map(({ id }) => ({ id, flagged: false, severity: "none", reason: "" })) }) } }] }) };
+  };
+  const host = await createHostServer({ port: 0, dataDirectory: directory, interfacesProvider: () => ({}), aiFetch, aiRetryIntervalMs: 10000, aiBatchWindowMs: 120 });
+  t.after(async () => { await host.close(); await rm(directory, { recursive: true, force: true }); });
+  await host.start();
+  const base = `http://127.0.0.1:${host.port}`;
+  const ownerCookie = await configureTestCommunity(base, ["feed"]);
+  const request = async (url, method, body, cookie = "") => fetch(`${base}${url}`, { method, headers: { "Content-Type": "application/json", ...(cookie ? { Cookie: cookie } : {}) }, body: JSON.stringify(body) });
+  await request("/api/admin/ai-settings", "PUT", { provider: "openai-compatible", baseUrl: "https://api.example.test/v1", model: "moderator", apiKey: "secret" }, ownerCookie);
+  const created = await request("/api/community/posts", "POST", { text: "One partial batch item" });
+  assert.equal(created.status, 201);
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(calls, 0);
+  for (let attempt = 0; attempt < 50 && calls === 0; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(calls, 1);
+});
+
+test("AI retries respect backoff without blocking new items and rejoin batching when ready", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "local-community-ai-retry-batch-"));
+  const batches = [];
+  const aiFetch = async (_url, options) => {
+    const prompt = JSON.parse(options.body).messages[0].content;
+    const inputs = JSON.parse(prompt.slice(prompt.indexOf("Items:\n") + 7));
+    batches.push(inputs);
+    if (batches.length === 1) return { ok: false, status: 503, json: async () => ({ error: { message: "Provider temporarily unavailable" } }) };
+    return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ results: inputs.map(({ id }) => ({ id, flagged: false, severity: "none", reason: "" })) }) } }] }) };
+  };
+  const host = await createHostServer({ port: 0, dataDirectory: directory, interfacesProvider: () => ({}), aiFetch, aiRetryBaseDelayMs: 300, aiRetryIntervalMs: 10, aiBatchWindowMs: 60 });
+  t.after(async () => { await host.close(); await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
+  await host.start();
+  const base = `http://127.0.0.1:${host.port}`;
+  const ownerCookie = await configureTestCommunity(base, ["feed"]);
+  const request = async (url, method, body, cookie = "") => fetch(`${base}${url}`, { method, headers: { "Content-Type": "application/json", ...(cookie ? { Cookie: cookie } : {}) }, body: JSON.stringify(body) });
+  await request("/api/admin/ai-settings", "PUT", { provider: "openai-compatible", baseUrl: "https://api.example.test/v1", model: "moderator", apiKey: "secret" }, ownerCookie);
+  const first = await request("/api/community/posts", "POST", { text: "Delayed retry item" });
+  assert.equal(first.status, 201);
+  const waitForBatchCount = async (count) => {
+    for (let attempt = 0; attempt < 100 && batches.length < count; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(batches.length, count);
+  };
+  await waitForBatchCount(1);
+
+  const second = await request("/api/community/posts", "POST", { text: "New pending item" });
+  assert.equal(second.status, 201);
+  await waitForBatchCount(2);
+  assert.deepEqual(batches[1].map(({ content }) => content), ["New pending item"]);
+
+  await waitForBatchCount(3);
+  assert.deepEqual(batches[2].map(({ content }) => content), ["Delayed retry item"]);
 });
 
 test("profile images require the right account, validate replacements, and are publicly served", async (t) => {

@@ -11,7 +11,7 @@ import { createUserAuth } from "./user-auth.js";
 import { createCommunityStore } from "./community-store.js";
 import { createNoteboardStore } from "./noteboard-store.js";
 import { createVenueCommunityStore } from "./venue-community-store.js";
-import { createAiSettingsStore, classifyBatch } from "./ai-moderation.js";
+import { createAiSettingsStore, classifyBatch, AI_BATCH_RESPONSE_TIMEOUT_MS } from "./ai-moderation.js";
 import { createProfileImageStore, MAX_PROFILE_IMAGE_SIZE } from "./profile-image-store.js";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
@@ -45,6 +45,7 @@ export async function createHostServer({
   aiFetch = fetch,
   aiRetryBaseDelayMs = 15000,
   aiRetryIntervalMs = 15000,
+  aiBatchWindowMs = 60000,
   qrEncoder = (url) => QRCode.toDataURL(url, { errorCorrectionLevel: "M", margin: 1, width: 240 }),
 } = {}) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
@@ -77,13 +78,26 @@ export async function createHostServer({
   let refreshTimer;
   let noteboardTimer;
   let aiRetryTimer;
+  let aiBatchTimer;
+  let aiBatchDeadline = 0;
   let aiWorkerRunning = false;
+  let aiWorkRequested = false;
   let aiWorkerTask = Promise.resolve();
   const aiRetryState = new Map();
   let aiGlobalPauseUntil = 0;
 
+  function clearAiBatchWindow() {
+    clearTimeout(aiBatchTimer);
+    aiBatchTimer = undefined;
+    aiBatchDeadline = 0;
+  }
+
   async function processAiChecks() {
-    if (aiWorkerRunning || aiSettings.get().provider === "disabled" || aiGlobalPauseUntil > Date.now()) return;
+    if (aiWorkerRunning) {
+      aiWorkRequested = true;
+      return;
+    }
+    if (aiSettings.get().provider === "disabled" || aiGlobalPauseUntil > Date.now()) return;
     aiWorkerRunning = true;
     try {
       const now = Date.now();
@@ -92,12 +106,23 @@ export async function createHostServer({
         const key = item.itemType + ":" + (item.postId || item.id) + ":" + (item.commentId || "");
         return (aiRetryState.get(key)?.nextAt || 0) <= now;
       });
+      if (!ready.length) {
+        clearAiBatchWindow();
+        return;
+      }
+      if (ready.length < 5 && !aiBatchDeadline) {
+        aiBatchDeadline = now + aiBatchWindowMs;
+        aiBatchTimer = setTimeout(scheduleAiChecks, aiBatchWindowMs);
+        aiBatchTimer.unref?.();
+      }
+      if (ready.length < 5 && now < aiBatchDeadline) return;
+      clearAiBatchWindow();
       for (let offset = 0; offset < ready.length; offset += 5) {
         const batch = ready.slice(offset, offset + 5);
         // Avoid delaying a small queue: dispatch immediately when fewer than five are ready.
         const ids = new Map(batch.map((item) => [item.itemType + ":" + item.postId + ":" + (item.commentId || ""), item]));
         try {
-          const results = await classifyBatch(aiSettings.get(), batch.map((item, index) => ({ ...item, id: String(index + 1) })), aiFetch);
+          const results = await classifyBatch(aiSettings.get(), batch.map((item, index) => ({ ...item, id: String(index + 1) })), aiFetch, AI_BATCH_RESPONSE_TIMEOUT_MS);
           for (let index = 0; index < batch.length; index += 1) {
             const item = batch[index];
             const key = item.itemType + ":" + (item.postId || item.id) + ":" + (item.commentId || "");
@@ -129,7 +154,13 @@ export async function createHostServer({
         broadcastNoteboardChanged();
         if (aiGlobalPauseUntil > Date.now()) break;
       }
-    } finally { aiWorkerRunning = false; }
+    } finally {
+      aiWorkerRunning = false;
+      if (aiWorkRequested) {
+        aiWorkRequested = false;
+        scheduleAiChecks();
+      }
+    }
   }
 
   function scheduleAiChecks() {
@@ -137,6 +168,14 @@ export async function createHostServer({
       .then(processAiChecks)
       .catch((error) => console.error("AI moderation check failed:", error.message));
     aiWorkerTask = Promise.all([aiWorkerTask, task]);
+  }
+
+  async function waitForAiWorker() {
+    let observedTask;
+    do {
+      observedTask = aiWorkerTask;
+      await observedTask;
+    } while (observedTask !== aiWorkerTask || aiWorkerRunning);
   }
 
   app.disable("x-powered-by");
@@ -791,8 +830,9 @@ export async function createHostServer({
       clearInterval(refreshTimer);
       clearInterval(noteboardTimer);
       clearInterval(aiRetryTimer);
+      clearAiBatchWindow();
       await disableHosting();
-      await aiWorkerTask;
+      await waitForAiWorker();
       await closeServer(loopbackListener);
       loopbackListener = undefined;
     },
