@@ -465,6 +465,32 @@ function AdminLogin({ onAuthenticated }) {
   );
 }
 
+function AiProviderSettings() {
+  const [settings, setSettings] = useState({ provider: "disabled", baseUrl: "", model: "", hasApiKey: false });
+  const [apiKey, setApiKey] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { requestJson("/api/admin/ai-settings").then(setSettings).catch((reason) => setError(reason.message)); }, []);
+  async function save(event) {
+    event.preventDefault(); setBusy(true); setError(""); setMessage("");
+    try {
+      const saved = await requestJson("/api/admin/ai-settings", { method: "PUT", body: JSON.stringify({ ...settings, apiKey, keepExistingKey: !apiKey && settings.hasApiKey }) });
+      setSettings(saved); setApiKey(""); setMessage("AI settings saved.");
+    } catch (reason) { setError(reason.message); } finally { setBusy(false); }
+  }
+  return <section className="admin-card password-card"><p className="eyebrow">FEED MODERATION</p><h2>AI review provider</h2>
+    <p className="card-copy">Choose local Ollama or an OpenAI-compatible provider. Cloud providers receive post and comment text. API keys are stored on this host.</p>
+    <form className="admin-form password-form" onSubmit={save}>
+      <label htmlFor="ai-provider">Provider</label><select id="ai-provider" value={settings.provider} onChange={(event) => setSettings({ ...settings, provider: event.target.value })}>
+        <option value="disabled">Disabled</option><option value="ollama">Local Ollama</option><option value="openai-compatible">Cloud / OpenAI-compatible</option></select>
+      {settings.provider !== "disabled" && <><label htmlFor="ai-url">API base URL</label><input id="ai-url" type="url" value={settings.baseUrl} onChange={(event) => setSettings({ ...settings, baseUrl: event.target.value })} required />
+        <label htmlFor="ai-model">Model name</label><input id="ai-model" value={settings.model} onChange={(event) => setSettings({ ...settings, model: event.target.value })} required />
+        {settings.provider === "openai-compatible" && <><label htmlFor="ai-key">API key {settings.hasApiKey && "(saved; leave blank to keep)"}</label><input id="ai-key" type="password" autoComplete="new-password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} required={!settings.hasApiKey} /></>}</>}
+      {error && <p className="error-message" role="alert">{error}</p>}{message && <p className="success-message" role="status">{message}</p>}
+      <button className="secondary-button" type="submit" disabled={busy}>{busy ? "Saving…" : "Save AI settings"}</button></form></section>;
+}
+
 function AdminFeedModeration() {
   const [posts, setPosts] = useState([]);
   const [error, setError] = useState("");
@@ -507,12 +533,14 @@ function AdminFeedModeration() {
     {error && <p className="error-message feed-error" role="alert">{error}</p>}
     {loading && <div className="feed-empty" role="status">Loading community posts…</div>}
     {!loading && posts.length === 0 && !error && <div className="feed-empty"><span aria-hidden="true">✳</span><h3>It’s quiet here</h3><p>Posts and comments from guests will appear here.</p></div>}
-    {!loading && posts.map((post) => <article className="post-card moderation-post" key={post.id}>
+    {!loading && posts.map((post) => <article className={`post-card moderation-post ${["flagged", "reviewed"].includes(post.aiReview?.status) ? "ai-flagged" : ""}`} key={post.id}>
       <div className="post-meta"><div className="avatar-dot" aria-hidden="true">{post.author === "Anonymous guest" ? "A" : post.author.slice(0, 1).toUpperCase()}</div><div><div className="moderation-author"><strong>{post.author}</strong>{post.anonymous && post.author !== "Anonymous guest" && <span className="anonymity-badge">Anonymous to guests</span>}</div><time>{new Date(post.createdAt).toLocaleString()}</time></div>{post.updatedAt && <span className="edited-label">Edited</span>}</div>
       {editing?.postId === post.id && !editing.commentId ? <form className="edit-form" onSubmit={(event) => { event.preventDefault(); moderate(`/api/admin/moderation/posts/${post.id}`, "PATCH", { text: editText }); }}><textarea maxLength={2000} value={editText} onChange={(event) => setEditText(event.target.value)} required /><div><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit">Save</button></div></form> : <p className="post-text">{post.text}</p>}
+      <small>Post AI check: {post.aiReview?.status === "reviewed" ? "flagged · reviewed by host" : post.aiReview?.status || "not checked"}{post.aiReview?.severity && post.aiReview.severity !== "none" ? " · " + post.aiReview.severity.toUpperCase() : ""}{post.aiReview?.reason ? " · " + post.aiReview.reason : ""}</small>
+      {post.aiReview?.status === "flagged" && <button type="button" onClick={() => moderate("/api/admin/moderation/posts/" + post.id + "/ai-reviewed", "POST")}>Mark post AI flag reviewed</button>}
       <div className="item-actions"><button type="button" onClick={() => { setEditing({ postId: post.id }); setEditText(post.text); }}>Edit post</button><button type="button" onClick={() => remove(post.id)}>Delete post</button></div>
       <div className="comments"><p className="comments-title">Comments <span>{post.comments.length}</span></p>
-        {post.comments.map((comment) => <div className="comment" key={comment.id}><div className="comment-body"><div className="moderation-author"><strong>{comment.author}</strong>{comment.anonymous && comment.author !== "Anonymous guest" && <span className="anonymity-badge">Anonymous to guests</span>}</div><time>{new Date(comment.createdAt).toLocaleString()}</time>{editing?.commentId === comment.id ? <form className="edit-form" onSubmit={(event) => { event.preventDefault(); moderate(`/api/admin/moderation/posts/${post.id}/comments/${comment.id}`, "PATCH", { text: editText }); }}><textarea maxLength={2000} value={editText} onChange={(event) => setEditText(event.target.value)} required /><div><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit">Save</button></div></form> : <p>{comment.text}</p>}{comment.updatedAt && <small>Edited</small>}<div className="item-actions"><button type="button" onClick={() => { setEditing({ postId: post.id, commentId: comment.id }); setEditText(comment.text); }}>Edit comment</button><button type="button" onClick={() => remove(post.id, comment.id)}>Delete comment</button></div></div></div>)}
+        {post.comments.map((comment) => <div className={`comment ${["flagged", "reviewed"].includes(comment.aiReview?.status) ? "ai-flagged" : ""}`} key={comment.id}>{["flagged", "reviewed"].includes(comment.aiReview?.status) && <strong className="ai-flag-banner">AI FLAGGED{comment.aiReview.status === "reviewed" ? " · REVIEWED" : " · HOST REVIEW"}</strong>}<div className="comment-body"><div className="moderation-author"><strong>{comment.author}</strong>{comment.anonymous && comment.author !== "Anonymous guest" && <span className="anonymity-badge">Anonymous to guests</span>}</div><time>{new Date(comment.createdAt).toLocaleString()}</time>{editing?.commentId === comment.id ? <form className="edit-form" onSubmit={(event) => { event.preventDefault(); moderate(`/api/admin/moderation/posts/${post.id}/comments/${comment.id}`, "PATCH", { text: editText }); }}><textarea maxLength={2000} value={editText} onChange={(event) => setEditText(event.target.value)} required /><div><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit">Save</button></div></form> : <p>{comment.text}</p>}<small>Comment AI check: {comment.aiReview?.status === "reviewed" ? "flagged · reviewed by host" : comment.aiReview?.status || "not checked"}{comment.aiReview?.severity && comment.aiReview.severity !== "none" ? " · " + comment.aiReview.severity.toUpperCase() : ""}{comment.aiReview?.reason ? " · " + comment.aiReview.reason : ""}</small>{comment.aiReview?.status === "flagged" && <button type="button" onClick={() => moderate("/api/admin/moderation/posts/" + post.id + "/comments/" + comment.id + "/ai-reviewed", "POST")}>Mark comment reviewed</button>}{comment.updatedAt && <small>Edited</small>}<div className="item-actions"><button type="button" onClick={() => { setEditing({ postId: post.id, commentId: comment.id }); setEditText(comment.text); }}>Edit comment</button><button type="button" onClick={() => remove(post.id, comment.id)}>Delete comment</button></div></div></div>)}
       </div>
     </article>)}
   </section>;
@@ -632,15 +660,15 @@ function AdminNoteboardModeration() {
     {!loading && <>
       <section className="moderation-section"><h3>Guest submissions</h3>
         {data.submissions.length === 0 && <p className="field-hint">No submissions are awaiting action.</p>}
-        {data.submissions.map((submission) => <article className="moderation-note-row" key={submission.id}>
-          <div><div className="moderation-author"><strong>{submission.displayName}</strong><span className="anonymity-badge">{submission.author}</span></div><p>{submission.text}</p><small>{submission.state === "pending" ? `Review by ${new Date(submission.reviewDeadline).toLocaleString()}` : `Choose a valid position by ${new Date(submission.placementDeadline).toLocaleString()}`}</small></div>
+        {data.submissions.map((submission) => <article className={`moderation-note-row ${["flagged", "reviewed"].includes(submission.aiReview?.status) ? "ai-flagged" : ""}`} key={submission.id}>
+          <div>{["flagged", "reviewed"].includes(submission.aiReview?.status) && <strong className="ai-flag-banner">AI FLAGGED{submission.aiReview.status === "reviewed" ? " · REVIEWED" : " · HOST REVIEW"}</strong>}<div className="moderation-author"><strong>{submission.displayName}</strong><span className="anonymity-badge">{submission.author}</span></div><p>{submission.text}</p><small>AI check: {submission.aiReview?.status === "reviewed" ? "flagged · reviewed by host" : submission.aiReview?.status || "not checked"}{submission.aiReview?.severity && submission.aiReview.severity !== "none" ? " · " + submission.aiReview.severity.toUpperCase() : ""}{submission.aiReview?.reason ? " · " + submission.aiReview.reason : ""}</small><small>{submission.state === "pending" ? `Review by ${new Date(submission.reviewDeadline).toLocaleString()}` : `Choose a valid position by ${new Date(submission.placementDeadline).toLocaleString()}`}</small>{submission.aiReview?.status === "flagged" && <button type="button" onClick={() => act(submission.id, `/api/admin/moderation/noteboard/submissions/${submission.id}/ai-reviewed`)}>Mark AI flag reviewed</button>}</div>
           {submission.state === "pending" && <div className="item-actions"><button type="button" disabled={busyId === submission.id} onClick={() => act(submission.id, `/api/admin/moderation/noteboard/submissions/${submission.id}/approve`)}>Approve</button><button type="button" disabled={busyId === submission.id} onClick={() => act(submission.id, `/api/admin/moderation/noteboard/submissions/${submission.id}/reject`)}>Reject</button></div>}
         </article>)}
       </section>
       <section className="moderation-section"><h3>Published notes</h3>
         {data.notes.length === 0 && <p className="field-hint">No notes are on the board.</p>}
-        {data.notes.map((note) => <article className="moderation-note-row" key={note.id}>
-          <div><div className="moderation-author"><strong>{note.displayName}</strong><span className="anonymity-badge">Host identity: {note.author}</span>{note.needsReview && <span className="review-badge">Needs review</span>}</div><p>{note.text}</p><small>{new Date(note.createdAt).toLocaleString()} · Position {Math.round(note.x * 100)}%, {Math.round(note.y * 100)}%</small></div>
+        {data.notes.map((note) => <article className={`moderation-note-row ${["flagged", "reviewed"].includes(note.aiReview?.status) ? "ai-flagged" : ""}`} key={note.id}>
+          <div>{["flagged", "reviewed"].includes(note.aiReview?.status) && <strong className="ai-flag-banner">AI FLAGGED{note.aiReview.status === "reviewed" ? " · REVIEWED" : " · HOST REVIEW"}</strong>}<div className="moderation-author"><strong>{note.displayName}</strong><span className="anonymity-badge">Host identity: {note.author}</span>{note.needsReview && <span className="review-badge">Needs review</span>}</div><p>{note.text}</p><small>AI check: {note.aiReview?.status === "reviewed" ? "flagged · reviewed by host" : note.aiReview?.status || "not checked"}{note.aiReview?.severity && note.aiReview.severity !== "none" ? " · " + note.aiReview.severity.toUpperCase() : ""}{note.aiReview?.reason ? " · " + note.aiReview.reason : ""}</small><small>{new Date(note.createdAt).toLocaleString()} · Position {Math.round(note.x * 100)}%, {Math.round(note.y * 100)}%</small>{note.aiReview?.status === "flagged" && <button type="button" onClick={() => act(note.id, `/api/admin/moderation/noteboard/notes/${note.id}/ai-reviewed`)}>Mark AI flag reviewed</button>}</div>
           <div className="item-actions">{note.needsReview && <button type="button" disabled={busyId === note.id} onClick={() => act(note.id, `/api/admin/moderation/noteboard/notes/${note.id}/reviewed`)}>Mark reviewed</button>}<button type="button" disabled={busyId === note.id} onClick={() => { if (window.confirm("Remove this note from the board?")) act(note.id, `/api/admin/moderation/noteboard/notes/${note.id}`, "DELETE"); }}>Remove</button></div>
         </article>)}
       </section>
@@ -988,6 +1016,7 @@ function AdminDashboard({ initialStatus, onLogout }) {
           <button className="secondary-button" type="submit" disabled={passwordBusy}>{passwordBusy ? "Saving…" : "Change password"}</button>
         </form>
       </section>
+      <AiProviderSettings />
       </section>}
 
       {communityPrompt && <div className="community-modal-backdrop" role="presentation">

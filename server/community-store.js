@@ -100,6 +100,7 @@ export function createCommunityStore(filePath) {
       ...publicComment(comment, null),
       author: comment.authorKey ? comment.authorName : "Anonymous guest",
       anonymous: Boolean(comment.anonymous || !comment.authorKey),
+      aiReview: comment.aiReview || { status: "not_checked", reason: "", checkedAt: null },
     };
   }
 
@@ -108,11 +109,16 @@ export function createCommunityStore(filePath) {
       ...publicPost(post, null),
       author: post.authorKey ? post.authorName : "Anonymous guest",
       anonymous: Boolean(post.anonymous || !post.authorKey),
+      aiReview: post.aiReview || { status: "not_checked", reason: "", checkedAt: null },
       comments: post.comments.map(moderationComment),
     };
   }
 
-  async function createPost({ text, author, anonymous = true }) {
+  function newAiReview(enabled) {
+    return { status: enabled ? "pending" : "not_checked", reason: "", checkedAt: null };
+  }
+
+  async function createPost({ text, author, anonymous = true, aiEnabled = false }) {
     const content = validateText(text);
     const post = {
       id: randomUUID(),
@@ -122,13 +128,14 @@ export function createCommunityStore(filePath) {
       anonymous: author ? Boolean(anonymous) : true,
       createdAt: new Date().toISOString(),
       updatedAt: null,
+      aiReview: newAiReview(aiEnabled),
       comments: [],
     };
     await mutate((nextPosts) => { nextPosts.unshift(post); });
     return post.id;
   }
 
-  async function updatePost({ postId, text, authorKey, isModerator = false }) {
+  async function updatePost({ postId, text, authorKey, isModerator = false, aiEnabled = false }) {
     const content = validateText(text);
     await mutate((nextPosts) => {
       const post = nextPosts.find((item) => item.id === postId);
@@ -136,6 +143,7 @@ export function createCommunityStore(filePath) {
       if (!isModerator && (!authorKey || post.authorKey !== authorKey)) throw forbidden();
       post.text = content;
       post.updatedAt = new Date().toISOString();
+      post.aiReview = newAiReview(aiEnabled);
     });
   }
 
@@ -148,7 +156,7 @@ export function createCommunityStore(filePath) {
     });
   }
 
-  async function createComment({ postId, text, author, anonymous = true }) {
+  async function createComment({ postId, text, author, anonymous = true, aiEnabled = false }) {
     const content = validateText(text);
     const comment = {
       id: randomUUID(),
@@ -158,6 +166,7 @@ export function createCommunityStore(filePath) {
       anonymous: author ? Boolean(anonymous) : true,
       createdAt: new Date().toISOString(),
       updatedAt: null,
+      aiReview: newAiReview(aiEnabled),
     };
     await mutate((nextPosts) => {
       const post = nextPosts.find((item) => item.id === postId);
@@ -167,7 +176,7 @@ export function createCommunityStore(filePath) {
     return comment.id;
   }
 
-  async function updateComment({ postId, commentId, text, authorKey, isModerator = false }) {
+  async function updateComment({ postId, commentId, text, authorKey, isModerator = false, aiEnabled = false }) {
     const content = validateText(text);
     await mutate((nextPosts) => {
       const post = nextPosts.find((item) => item.id === postId);
@@ -177,6 +186,7 @@ export function createCommunityStore(filePath) {
       if (!isModerator && (!authorKey || comment.authorKey !== authorKey)) throw forbidden();
       comment.text = content;
       comment.updatedAt = new Date().toISOString();
+      comment.aiReview = newAiReview(aiEnabled);
     });
   }
 
@@ -195,6 +205,45 @@ export function createCommunityStore(filePath) {
     await mutate((nextPosts) => { nextPosts.splice(0); });
   }
 
+  function findItem(postsList, itemType, postId, commentId) {
+    const post = postsList.find((item) => item.id === postId);
+    if (!post) return null;
+    return itemType === "comment" ? post.comments.find((item) => item.id === commentId) || null : post;
+  }
+
+  async function setAiReview({ itemType, postId, commentId, expectedText, status, reason = "", severity = "none", checkedAt = null }) {
+    let updated = false;
+    await mutate((nextPosts) => {
+      const item = findItem(nextPosts, itemType, postId, commentId);
+      if (!item || (expectedText !== undefined && item.text !== expectedText)) return;
+      item.aiReview = { status, reason: ["flagged", "reviewed", "unavailable"].includes(status) ? String(reason).slice(0, 500) : "", severity: ["low", "medium", "high", "critical"].includes(severity) ? severity : "none", checkedAt };
+      updated = true;
+    });
+    return updated;
+  }
+
+  async function markAiReviewed({ itemType, postId, commentId }) {
+    let updated = false;
+    await mutate((nextPosts) => {
+      const item = findItem(nextPosts, itemType, postId, commentId);
+      if (!item || item.aiReview?.status !== "flagged") throw missingItem("That flagged contribution could not be found.");
+      item.aiReview = { ...item.aiReview, status: "reviewed" };
+      updated = true;
+    });
+    return updated;
+  }
+
+  function listAiChecks() {
+    const result = [];
+    for (const post of posts) {
+      if (["pending", "unavailable"].includes((post.aiReview || {}).status)) result.push({ itemType: "post", postId: post.id, text: post.text });
+      for (const comment of post.comments) {
+        if (["pending", "unavailable"].includes((comment.aiReview || {}).status)) result.push({ itemType: "comment", postId: post.id, commentId: comment.id, text: comment.text });
+      }
+    }
+    return result;
+  }
+
   return {
     load,
     list: (viewerKey = null) => posts.map((post) => publicPost(post, viewerKey)),
@@ -206,5 +255,8 @@ export function createCommunityStore(filePath) {
     updateComment,
     deleteComment,
     clear,
+    setAiReview,
+    markAiReviewed,
+    listAiChecks,
   };
 }

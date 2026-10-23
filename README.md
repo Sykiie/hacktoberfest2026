@@ -28,6 +28,7 @@ The admin page and its actions are restricted by the server to loopback connecti
 
 - Confirm that the host and guest device are on the same venue Wi-Fi or local network.
 - Confirm that the owner enabled hosting and selected the address belonging to the venue Wi-Fi.
+- On Windows, set the venue Wi-Fi network profile to **Private** (not **Public**) in **Settings > Network & internet > Wi-Fi > [connected network] > Network profile type**. This lets Windows Firewall apply private-network rules for guest hosting.
 - Allow Node.js or the selected port through the host computer's firewall on the private network.
 - Check whether the router or access point enables client isolation. This prevents devices from reaching each other even when they use the same Wi-Fi name.
 - Reconnect the host to Wi-Fi and refresh the admin screen if its local address changes.
@@ -44,6 +45,9 @@ Network reachability is the access boundary for this milestone. It does not prov
 - On the host computer, sign in to admin at `/admin` and open the **Community** tab to view and moderate the feed. Signed-in identities, including identities behind anonymous contributions, appear there. No second password prompt is needed; the owner admin session and loopback-only restriction protect these tools.
 - The host can participate publicly by opening the shared community feed and signing in with a regular venue-local account. The owner password remains separate and is not used as a public identity.
 - Host moderation routes are restricted to loopback connections and are unavailable from guest devices.
+- The host can configure AI review in the Security tab. Choose Local Ollama to connect to an Ollama service running on the host, or Cloud / OpenAI-compatible to enter a compatible HTTPS endpoint, model name, and API key. Cloud providers receive post and comment text for classification; review their data handling before choosing one. The key is stored in the host's ignored data/ai-moderation.json file and is never returned to guest clients. Restrict access to the host's data directory.
+- AI checks run after publishing. If the configured provider is unavailable, posts and comments remain visible and are marked unavailable in host moderation; the host retries them automatically when the provider is reachable. AI flags remain visible until the owner reviews, edits, or deletes the contribution. AI moderation is advisory and does not automatically hide content.
+- Local Ollama example: install Ollama on the host, download a compatible model such as Gemma, then configure the local URL (for example http://127.0.0.1:11434) and the exact model name in Security. Cloud providers must expose an OpenAI-compatible chat completions endpoint.
 
 The current community modules do not include feed reactions, attachments, private messages, notifications, or account recovery.
 
