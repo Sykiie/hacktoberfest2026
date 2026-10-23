@@ -28,14 +28,14 @@ jobs:
           package-manager-cache: false
       - name: Install locked dependencies
         run: npm ci
+      - name: Build production interface
+        run: npm run build
       - name: Run unit and integration tests
         run: npm test
       - name: Check JavaScript syntax
         run: npm run check
       - name: Check project documentation
         run: npm run check:docs
-      - name: Build production interface
-        run: npm run build
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
 
