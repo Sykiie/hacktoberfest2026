@@ -29,6 +29,8 @@ function GuestWelcome() {
   const [busy, setBusy] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
   const [communityTab, setCommunityTab] = useState("feed");
+  const [enabledModules, setEnabledModules] = useState([]);
+  const [venueName, setVenueName] = useState("LOCAL COMMUNITY");
   const [notes, setNotes] = useState([]);
   const [noteText, setNoteText] = useState("");
   const [noteName, setNoteName] = useState("");
@@ -73,6 +75,16 @@ function GuestWelcome() {
     }
   }, []);
 
+  const refreshCommunityConfig = useCallback(async () => {
+    try {
+      const { community } = await requestJson("/api/community/config");
+      setVenueName(community?.venueName || "LOCAL COMMUNITY");
+      const modules = community?.enabledModules || [];
+      setEnabledModules(modules);
+      setCommunityTab((current) => modules.includes(current) ? current : modules[0] || "");
+    } catch { /* Keep the current guest view if the community configuration is temporarily unavailable. */ }
+  }, []);
+
   const refreshNoteboard = useCallback(async () => {
     try {
       const result = await requestJson("/api/community/noteboard");
@@ -84,11 +96,16 @@ function GuestWelcome() {
   useEffect(() => {
     if (screen !== "feed") return undefined;
     const events = new EventSource("/api/community/events");
-    events.onopen = refreshFeed;
+    events.onopen = () => { refreshFeed(); refreshCommunityConfig(); };
     events.addEventListener("feed-changed", refreshFeed);
     events.addEventListener("noteboard-changed", refreshNoteboard);
+    events.addEventListener("community-changed", refreshCommunityConfig);
     return () => events.close();
-  }, [screen, refreshFeed, refreshNoteboard]);
+  }, [screen, refreshFeed, refreshNoteboard, refreshCommunityConfig]);
+
+  useEffect(() => {
+    refreshCommunityConfig();
+  }, [refreshCommunityConfig]);
 
   useEffect(() => {
     if (screen !== "feed") return;
@@ -281,7 +298,7 @@ function GuestWelcome() {
     return <main className="guest-page entry-page">
       <section className="guest-card entry-card">
         <div className="guest-mark" aria-hidden="true">LC</div>
-        <p className="eyebrow">LOCAL COMMUNITY</p>
+        <p className="eyebrow">{venueName}</p>
         {checkingSession ? <><h1>Checking sign-in…</h1><p className="guest-message">Just a moment.</p></> : <>
           <h1>{screen === "register" ? "Create an account" : "Sign in to the community"}</h1>
           <form className="guest-account-form" onSubmit={submitAccount}>
@@ -311,12 +328,13 @@ function GuestWelcome() {
 
   return (
     <main className="guest-page feed-page">
-      <header className="feed-topbar"><div className="feed-brand"><div className="guest-mark" aria-hidden="true">LC</div><div><p className="eyebrow">LOCAL COMMUNITY</p><strong>{communityTab === "feed" ? "Community feed" : "Noteboard"}</strong></div></div><div className="feed-account" role="status">{user ? <>Signed in as <strong>{user.username}</strong><button className="text-button" type="button" onClick={signOut}>Sign out</button></> : <>Continuing as guest<button className="text-button" type="button" onClick={() => { setError(""); setScreen("login"); }}>Sign in</button></>}</div></header>
-      <nav className="community-module-tabs" role="tablist" aria-label="Community modules">
-        <button type="button" role="tab" aria-selected={communityTab === "feed"} className={communityTab === "feed" ? "module-tab module-tab-active" : "module-tab"} onClick={() => setCommunityTab("feed")}>Shared Feed</button>
-        <button type="button" role="tab" aria-selected={communityTab === "noteboard"} className={communityTab === "noteboard" ? "module-tab module-tab-active" : "module-tab"} onClick={() => setCommunityTab("noteboard")}>Noteboard</button>
-      </nav>
-      {communityTab === "feed" && <section className="community-feed" aria-label="Community feed">
+      <header className="feed-topbar"><div className="feed-brand"><div className="guest-mark" aria-hidden="true">LC</div><div><p className="eyebrow">{venueName}</p><strong>{communityTab === "feed" ? "Community feed" : communityTab === "noteboard" ? "Noteboard" : "Community"}</strong></div></div><div className="feed-account" role="status">{user ? <>Signed in as <strong>{user.username}</strong><button className="text-button" type="button" onClick={signOut}>Sign out</button></> : <>Continuing as guest<button className="text-button" type="button" onClick={() => { setError(""); setScreen("login"); }}>Sign in</button></>}</div></header>
+      {enabledModules.length > 0 && <nav className="community-module-tabs" role="tablist" aria-label="Community modules">
+        {enabledModules.includes("feed") && <button type="button" role="tab" aria-selected={communityTab === "feed"} className={communityTab === "feed" ? "module-tab module-tab-active" : "module-tab"} onClick={() => setCommunityTab("feed")}>Shared Feed</button>}
+        {enabledModules.includes("noteboard") && <button type="button" role="tab" aria-selected={communityTab === "noteboard"} className={communityTab === "noteboard" ? "module-tab module-tab-active" : "module-tab"} onClick={() => setCommunityTab("noteboard")}>Noteboard</button>}
+      </nav>}
+      {enabledModules.length === 0 && <section className="community-feed community-unconfigured" role="status"><h2>No community is set up yet</h2><p>The host needs to create a community before guests can join.</p></section>}
+      {enabledModules.includes("feed") && communityTab === "feed" && <section className="community-feed" aria-label="Community feed">
         <header className="feed-heading"><div><p className="eyebrow">AROUND THIS SPACE</p><h2>Community feed</h2></div><span>{posts.length} {posts.length === 1 ? "post" : "posts"}</span></header>
         <form className="composer-card" onSubmit={publishPost}>
           <label htmlFor="new-post">Share something with the community</label>
@@ -335,7 +353,7 @@ function GuestWelcome() {
           </div>
         </article>)}
       </section>}
-      {communityTab === "noteboard" && <section className="community-feed noteboard-page" aria-label="Noteboard">
+      {enabledModules.includes("noteboard") && communityTab === "noteboard" && <section className="community-feed noteboard-page" aria-label="Noteboard">
         <header className="feed-heading"><div><p className="eyebrow">LEAVE A LITTLE NOTE</p><h2>Community Noteboard</h2></div><span>{notes.length} {notes.length === 1 ? "note" : "notes"}</span></header>
         <p className="moderation-explainer">Choose a spot on the board. Notes can overlap, but placement is rejected if it would cover more than 30% of any note underneath. Placement is final.</p>
         <div className="noteboard-canvas" role="application" aria-label="Click to choose where to place a note" onClick={chooseNotePosition}>
@@ -603,6 +621,15 @@ function AdminModeration() {
 
 function AdminDashboard({ initialStatus, onLogout }) {
   const [status, setStatus] = useState(initialStatus);
+  const [community, setCommunity] = useState(null);
+  const [communityLoaded, setCommunityLoaded] = useState(!initialStatus.communityExists);
+  const [communityPrompt, setCommunityPrompt] = useState(null);
+  const [communityDraft, setCommunityDraft] = useState({ venueType: "Cafe", customVenueType: "", venueName: "", enabledModules: ["feed", "noteboard"] });
+  const [communityStep, setCommunityStep] = useState(0);
+  const [communityBusy, setCommunityBusy] = useState(false);
+  const [communityError, setCommunityError] = useState("");
+  const [deletePassword, setDeletePassword] = useState("");
+  const [continueHostingAfterCreate, setContinueHostingAfterCreate] = useState(false);
   const [selectedAddress, setSelectedAddress] = useState(initialStatus.interfaces[0]?.address || "");
   const [join, setJoin] = useState(null);
   const [error, setError] = useState("");
@@ -635,6 +662,20 @@ function AdminDashboard({ initialStatus, onLogout }) {
 
   useEffect(() => {
     let active = true;
+    if (!status.communityExists) {
+      setCommunity(null);
+      setCommunityLoaded(true);
+      return undefined;
+    }
+    setCommunityLoaded(false);
+    requestJson("/api/admin/community")
+      .then(({ community: saved }) => { if (active) { setCommunity(saved); setCommunityLoaded(true); } })
+      .catch((reason) => { if (active) { setCommunityError(reason.message); setCommunityLoaded(true); } });
+    return () => { active = false; };
+  }, [status.communityExists]);
+
+  useEffect(() => {
+    let active = true;
     if (!status.hostingEnabled || !selectedAddress) {
       setJoin(null);
       return undefined;
@@ -646,6 +687,10 @@ function AdminDashboard({ initialStatus, onLogout }) {
   }, [status.hostingEnabled, selectedAddress, status.port]);
 
   async function setHosting(enabled) {
+    if (enabled && !status.communityExists) {
+      openCommunityPrompt("create", true);
+      return;
+    }
     setError("");
     setBusy(true);
     try {
@@ -656,6 +701,88 @@ function AdminDashboard({ initialStatus, onLogout }) {
       await refreshStatus().catch(() => {});
     } finally {
       setBusy(false);
+    }
+  }
+
+  function openCommunityPrompt(mode, continueHosting = false) {
+    setCommunityError("");
+    setCommunityStep(0);
+    setContinueHostingAfterCreate(continueHosting);
+    setCommunityDraft(community ? { ...community, enabledModules: [...community.enabledModules] } : {
+      venueType: "Cafe", customVenueType: "", venueName: "", enabledModules: ["feed", "noteboard"],
+    });
+    setCommunityPrompt(mode);
+  }
+
+  function closeCommunityPrompt() {
+    if (communityBusy) return;
+    setCommunityPrompt(null);
+    setCommunityError("");
+    setDeletePassword("");
+    setContinueHostingAfterCreate(false);
+  }
+
+  function toggleModule(module) {
+    setCommunityDraft((current) => ({
+      ...current,
+      enabledModules: current.enabledModules.includes(module)
+        ? current.enabledModules.filter((item) => item !== module)
+        : [...current.enabledModules, module],
+    }));
+  }
+
+  async function saveCommunity(event) {
+    event.preventDefault();
+    if (communityStep < 2) {
+      setCommunityStep((step) => step + 1);
+      return;
+    }
+    setCommunityBusy(true);
+    setCommunityError("");
+    try {
+      const mode = communityPrompt;
+      const { community: saved } = await requestJson("/api/admin/community", {
+        method: mode === "create" ? "POST" : "PATCH",
+        body: JSON.stringify(communityDraft),
+      });
+      setCommunity(saved);
+      setStatus((current) => ({ ...current, communityExists: true }));
+      setCommunityPrompt(null);
+      if (continueHostingAfterCreate) {
+        setContinueHostingAfterCreate(false);
+        try {
+          await requestJson("/api/admin/hosting", { method: "POST", body: JSON.stringify({ enabled: true }) });
+          await refreshStatus();
+        } catch (reason) {
+          setError(reason.message);
+          await refreshStatus().catch(() => {});
+        }
+      }
+    } catch (reason) {
+      setCommunityError(reason.message);
+    } finally {
+      setCommunityBusy(false);
+    }
+  }
+
+  async function deleteCommunity(event) {
+    event.preventDefault();
+    setCommunityBusy(true);
+    setCommunityError("");
+    try {
+      await requestJson("/api/admin/community", {
+        method: "DELETE",
+        body: JSON.stringify({ password: deletePassword }),
+      });
+      setCommunity(null);
+      setStatus((current) => ({ ...current, communityExists: false }));
+      setCommunityPrompt(null);
+      setDeletePassword("");
+      await refreshStatus();
+    } catch (reason) {
+      setCommunityError(reason.message);
+    } finally {
+      setCommunityBusy(false);
     }
   }
 
@@ -751,9 +878,22 @@ function AdminDashboard({ initialStatus, onLogout }) {
             </select>
           )}
           {status.interfaces.length === 0 && <p className="empty-note">Connect this computer to the venue Wi-Fi before enabling guest access.</p>}
-          <button className={`primary-button ${status.hostingEnabled ? "stop-button" : ""}`} type="button" disabled={busy || (!status.hostingEnabled && status.interfaces.length === 0)} onClick={() => setHosting(!status.hostingEnabled)}>
+          <button className={`primary-button ${status.hostingEnabled ? "stop-button" : ""}`} type="button" disabled={busy || (!status.hostingEnabled && status.communityExists && status.interfaces.length === 0)} onClick={() => setHosting(!status.hostingEnabled)}>
             {busy ? "Updating…" : status.hostingEnabled ? "Disable guest hosting" : "Enable guest hosting"}
           </button>
+          <section className="community-setup-summary" aria-label="Venue community setup">
+            <div>
+              <p className="eyebrow">COMMUNITY SETUP</p>
+              {status.communityExists
+                ? communityLoaded
+                  ? <><h3>{community?.venueName || "Community"}</h3><p className="community-summary-copy">{community?.venueType === "Other" ? community.customVenueType : community?.venueType} · {community?.enabledModules?.map((module) => module === "feed" ? "Shared Feed" : "Noteboard").join(", ")}</p></>
+                  : <p className="community-summary-copy">Loading community details…</p>
+                : <p className="community-summary-copy">Create a community to set up this venue and choose its features.</p>}
+            </div>
+            {status.communityExists
+              ? <div className="community-management-actions"><button className="secondary-button" type="button" onClick={() => openCommunityPrompt("edit")} disabled={communityBusy || !communityLoaded}>Edit</button><button className="danger-button" type="button" onClick={() => { setCommunityError(""); setDeletePassword(""); setCommunityPrompt("delete"); }} disabled={communityBusy}>Delete</button></div>
+              : <button className="secondary-button" type="button" onClick={() => openCommunityPrompt("create")} disabled={communityBusy}>Create community</button>}
+          </section>
           {error && <p className="error-message" role="alert">{error}</p>}
           <div className="hosting-footnote">Hosting resets to off whenever this app restarts.</div>
         </section>
@@ -795,6 +935,50 @@ function AdminDashboard({ initialStatus, onLogout }) {
         </form>
       </section>
       </section>}
+
+      {communityPrompt && <div className="community-modal-backdrop" role="presentation">
+        <section className="community-modal" role="dialog" aria-modal="true" aria-labelledby="community-modal-title">
+          <header className="community-modal-header">
+            <div><p className="eyebrow">VENUE COMMUNITY</p><h2 id="community-modal-title">{communityPrompt === "create" ? "Create your community" : communityPrompt === "edit" ? "Edit your community" : "Delete your community"}</h2></div>
+            <button className="modal-close-button" type="button" aria-label="Close" onClick={closeCommunityPrompt} disabled={communityBusy}>×</button>
+          </header>
+
+          {communityPrompt === "delete" ? status.hostingEnabled ? <div className="community-delete-blocked">
+            <p className="error-message" role="alert">Turn off guest hosting before deleting this community. Use the hosting control, then try again.</p>
+            <button className="secondary-button" type="button" onClick={closeCommunityPrompt}>Close</button>
+          </div> : <form className="community-prompt-form" onSubmit={deleteCommunity}>
+            <p className="community-prompt-copy">This permanently deletes the venue settings, posts, notes, community accounts, and moderation history. Your owner login remains available.</p>
+            <label htmlFor="delete-community-password">Enter the current owner password to confirm</label>
+            <input id="delete-community-password" type="password" autoComplete="current-password" value={deletePassword} onChange={(event) => setDeletePassword(event.target.value)} required />
+            {communityError && <p className="error-message" role="alert">{communityError}</p>}
+            <div className="community-modal-actions"><button className="secondary-button" type="button" onClick={closeCommunityPrompt} disabled={communityBusy}>Cancel</button><button className="danger-button" type="submit" disabled={communityBusy || !deletePassword}>{communityBusy ? "Deleting…" : "Delete community"}</button></div>
+          </form> : <form className="community-prompt-form" onSubmit={saveCommunity}>
+            <p className="community-step-label">Step {communityStep + 1} of 3</p>
+            {communityStep === 0 && <>
+              <label htmlFor="community-venue-type">Venue type</label>
+              <select id="community-venue-type" value={communityDraft.venueType} onChange={(event) => setCommunityDraft((current) => ({ ...current, venueType: event.target.value }))}>
+                <option value="Cafe">Cafe</option><option value="Other">Other</option>
+              </select>
+              {communityDraft.venueType === "Other" && <><label htmlFor="community-custom-type">Custom venue type</label><input id="community-custom-type" type="text" maxLength={60} value={communityDraft.customVenueType} onChange={(event) => setCommunityDraft((current) => ({ ...current, customVenueType: event.target.value }))} placeholder="For example, bookstore" required /></>}
+            </>}
+            {communityStep === 1 && <>
+              <label htmlFor="community-venue-name">Venue name</label>
+              <input id="community-venue-name" type="text" maxLength={80} value={communityDraft.venueName} onChange={(event) => setCommunityDraft((current) => ({ ...current, venueName: event.target.value }))} placeholder="Enter your venue name" required />
+            </>}
+            {communityStep === 2 && <fieldset className="community-module-checklist">
+              <legend>Feature modules</legend>
+              <label><input type="checkbox" checked={communityDraft.enabledModules.includes("feed")} disabled={communityDraft.enabledModules.length === 1 && communityDraft.enabledModules.includes("feed")} onChange={() => toggleModule("feed")} /> Shared Feed</label>
+              <label><input type="checkbox" checked={communityDraft.enabledModules.includes("noteboard")} disabled={communityDraft.enabledModules.length === 1 && communityDraft.enabledModules.includes("noteboard")} onChange={() => toggleModule("noteboard")} /> Noteboard</label>
+              <p className="field-hint">Choose at least one feature.</p>
+            </fieldset>}
+            {communityError && <p className="error-message" role="alert">{communityError}</p>}
+            <div className="community-modal-actions">
+              <button className="secondary-button" type="button" onClick={communityStep === 0 ? closeCommunityPrompt : () => setCommunityStep((step) => step - 1)} disabled={communityBusy}>{communityStep === 0 ? "Cancel" : "Back"}</button>
+              <button className="primary-button" type="submit" disabled={communityBusy || (communityStep === 2 && communityDraft.enabledModules.length === 0)}>{communityBusy ? "Saving…" : communityStep === 2 ? communityPrompt === "create" ? "Create community" : "Save changes" : "Continue"}</button>
+            </div>
+          </form>}
+        </section>
+      </div>}
     </main>
   );
 }

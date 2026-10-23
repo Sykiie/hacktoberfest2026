@@ -113,6 +113,11 @@ export function createUserAuth(usersFile, { now = () => Date.now() } = {}) {
     return [...users.values()].map((user) => ({ username: user.displayUsername, frozenUntil: user.frozenUntil && Date.parse(user.frozenUntil) > now() ? user.frozenUntil : null }));
   }
 
+  async function clear() {
+    await mutateUsers((nextUsers) => { nextUsers.clear(); });
+    sessions.clear();
+  }
+
   async function register(username, password) {
     const normalized = normalizeUsername(username);
     if (!normalized) throw new TypeError("Use 3–24 letters, numbers, or underscores for the username.");
@@ -181,5 +186,5 @@ export function createUserAuth(usersFile, { now = () => Date.now() } = {}) {
     return `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`;
   }
 
-  return { load, isAvailable, register, login, identifyUser, currentUser, destroySession, sessionCookie, clearCookie, isFrozen, assertCanContribute, startNoteCooldown, assertCanDeleteNote, setFrozen, listAccounts };
+  return { load, isAvailable, register, login, identifyUser, currentUser, destroySession, sessionCookie, clearCookie, isFrozen, assertCanContribute, startNoteCooldown, assertCanDeleteNote, setFrozen, listAccounts, clear };
 }

@@ -47,6 +47,7 @@ footer span { padding: 0 5px; }
 .guest-page { display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(ellipse at 50% 42%, #fff 0, #f7f7f2 68%); }
 .entry-page { justify-content: center; }
 .entry-card { max-width: 460px; padding: 38px 42px 32px; }
+.entry-card > .eyebrow { font-size: 12px; letter-spacing: .1em; }
 .entry-card h1 { margin-bottom: 17px; font-size: clamp(30px, 5vw, 38px); }
 .entry-card .guest-account-form { margin-top: 0; }
 .entry-card .guest-account-switch { margin-top: 14px; }
@@ -55,6 +56,7 @@ footer span { padding: 0 5px; }
 .feed-topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: min(100%, 820px); margin: 0 auto; padding: 12px 0 16px; border-bottom: 1px solid #e6e8dc; }
 .feed-brand { display: flex; align-items: center; gap: 11px; }
 .feed-brand .guest-mark { width: 40px; height: 40px; margin: 0; border-radius: 13px; font-size: 12px; }
+.feed-brand .eyebrow { font-size: 12px; letter-spacing: .1em; }
 .feed-brand strong { display: block; margin-top: 3px; color: #3d4532; font-size: 13px; }
 .feed-account { display: flex; align-items: center; gap: 9px; color: #777d70; font-size: 11px; }
 .feed-account strong { color: #465237; }
@@ -141,6 +143,36 @@ footer span { padding: 0 5px; }
 .hosting-card select { margin-bottom: 8px; }
 .empty-note { margin: 17px 0; padding: 12px; border-radius: 10px; background: #f7f8f3; color: #707565; font-size: 11px; line-height: 1.5; }
 .hosting-footnote { margin-top: 14px; color: #898d83; font-size: 10px; }
+.community-setup-summary { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 17px; padding-top: 15px; border-top: 1px solid #eef0e9; }
+.community-setup-summary h3 { margin: 6px 0 3px; color: #3d4532; font-size: 14px; }
+.community-summary-copy { margin: 6px 0 0; color: #747a6d; font-size: 10px; line-height: 1.5; }
+.community-management-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.community-management-actions .secondary-button, .community-management-actions .danger-button { margin: 0; }
+.danger-button { display: inline-flex; align-items: center; justify-content: center; min-height: 38px; padding: 9px 13px; border: 1px solid #e6c9c4; border-radius: 10px; background: #fff8f6; color: #934638; font-size: 11px; font-weight: 650; cursor: pointer; }
+.danger-button:hover:not(:disabled) { background: #faeeeb; }
+.danger-button:disabled { opacity: .55; cursor: wait; }
+.community-modal-backdrop { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; overflow-y: auto; padding: 22px; background: #17200fb8; }
+.community-modal { width: min(100%, 480px); padding: 24px; border: 1px solid #e7e8dd; border-radius: 18px; background: #fff; box-shadow: 0 24px 80px #10160855; }
+.community-modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 19px; }
+.community-modal-header h2 { margin: 6px 0 0; color: #30372a; font-size: 21px; letter-spacing: -.035em; }
+.modal-close-button { display: grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 9px; background: #f2f3ed; color: #606754; font-size: 21px; cursor: pointer; }
+.community-prompt-form { display: grid; gap: 10px; }
+.community-prompt-form > label { color: #555d4b; font-size: 12px; font-weight: 650; }
+.community-prompt-form > input, .community-prompt-form > select { width: 100%; padding: 12px 13px; border: 1px solid #dfe3d5; border-radius: 10px; background: #fff; color: #293022; font: inherit; outline: none; }
+.community-prompt-form > input:focus, .community-prompt-form > select:focus { border-color: #899b55; box-shadow: 0 0 0 3px #d5f05e45; }
+.community-step-label { margin: 0 0 4px; color: #77806a; font-size: 11px; }
+.community-module-checklist { display: grid; gap: 11px; padding: 13px; border: 1px solid #e6e8dd; border-radius: 11px; }
+.community-module-checklist legend { padding: 0 5px; color: #555d4b; font-size: 12px; font-weight: 650; }
+.community-module-checklist label { display: flex; align-items: center; gap: 9px; color: #444b3c; font-size: 12px; cursor: pointer; }
+.community-module-checklist input { width: 16px; height: 16px; accent-color: #687b45; }
+.community-module-checklist .field-hint { margin: 0; }
+.community-prompt-copy, .community-delete-blocked > p { margin: 0; color: #6c7266; font-size: 12px; line-height: 1.6; }
+.community-delete-blocked { display: grid; gap: 12px; }
+.community-delete-blocked .error-message { color: #914438; }
+.community-modal-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 12px; }
+.community-modal-actions .secondary-button, .community-modal-actions .danger-button { margin: 0; }
+.community-modal-actions .primary-button { width: auto; min-width: 130px; margin: 0; }
+.community-modal .error-message { margin: 0; }
 .preview-card h2 { margin-top: 9px; }
 .secondary-button { display: inline-flex; align-items: center; gap: 10px; margin-top: 19px; padding: 10px 13px; border: 1px solid #e0e4d5; border-radius: 10px; color: #44502f; background: #f9faf6; font-size: 11px; font-weight: 650; text-decoration: none; }
 .secondary-button:hover { background: #f0f3e5; }
@@ -227,9 +259,15 @@ footer span { padding: 0 5px; }
   .host-community-card { grid-template-columns: 1fr; }
   .host-community-card .secondary-button:last-child { grid-column: auto; }
   .host-community-card .secondary-button { width: fit-content; }
+  .community-setup-summary { align-items: flex-start; flex-direction: column; }
+  .community-management-actions { justify-content: flex-start; }
+  .community-modal { padding: 21px; }
 }
 
 .community-module-tabs { display: flex; gap: 6px; width: min(100%, 820px); margin: 14px auto 0; padding: 5px; border: 1px solid #e4e6dc; border-radius: 13px; background: #f0f2e9; }
+.community-unconfigured { padding: 28px; border: 1px solid #e7e8dd; border-radius: 16px; background: #fff; color: #747a6d; text-align: center; }
+.community-unconfigured h2 { margin: 3px 0 7px; color: #404737; font-size: 18px; }
+.community-unconfigured p { margin: 0; font-size: 12px; line-height: 1.5; }
 .module-tab { min-height: 39px; flex: 1; border: 0; border-radius: 9px; background: transparent; color: #6b7164; font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; }
 .module-tab-active { background: white; color: #38452a; box-shadow: 0 2px 8px #2f3b160d; }
 .noteboard-page { margin-top: 22px; }

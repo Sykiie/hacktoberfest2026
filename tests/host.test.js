@@ -147,6 +147,12 @@ test("hosting toggle opens a guest-only LAN listener and closes it again", async
   });
   assert.equal(loginResponse.status, 200);
   const cookie = loginResponse.headers.get("set-cookie").split(";")[0];
+  const communityResponse = await fetch(`${loopbackUrl}/api/admin/community`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: cookie },
+    body: JSON.stringify({ venueType: "Cafe", venueName: "LAN Cafe", enabledModules: ["feed", "noteboard"] }),
+  });
+  assert.equal(communityResponse.status, 201);
   const enableResponse = await fetch(`${loopbackUrl}/api/admin/hosting`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Cookie: cookie },

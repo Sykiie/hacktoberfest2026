@@ -289,5 +289,13 @@ export function createNoteboardStore({ boardFile, auditFile, now = () => Date.no
     await mutate((_draft, events) => { events.splice(0); });
   }
 
-  return { load, list, submitGuest, getSubmission, replaceGuestPosition, validateCandidate, createSignedIn, deleteNote, moderateSubmission, markReviewed, listForModeration, clearAudit, processDeadlines };
+  async function clear() {
+    await mutate((draft, events) => {
+      draft.notes.splice(0);
+      draft.submissions.splice(0);
+      events.splice(0);
+    });
+  }
+
+  return { load, list, submitGuest, getSubmission, replaceGuestPosition, validateCandidate, createSignedIn, deleteNote, moderateSubmission, markReviewed, listForModeration, clearAudit, clear, processDeadlines };
 }

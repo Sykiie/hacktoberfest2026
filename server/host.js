@@ -10,6 +10,7 @@ import { createJoinPayload } from "./join.js";
 import { createUserAuth } from "./user-auth.js";
 import { createCommunityStore } from "./community-store.js";
 import { createNoteboardStore } from "./noteboard-store.js";
+import { createVenueCommunityStore } from "./venue-community-store.js";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const projectDir = path.resolve(currentDir, "..");
@@ -52,6 +53,8 @@ export async function createHostServer({
   await userAuth.load();
   const community = createCommunityStore(path.join(dataDirectory, "community.json"));
   await community.load();
+  const venueCommunity = createVenueCommunityStore(path.join(dataDirectory, "venue-community.json"));
+  await venueCommunity.load();
   const noteboard = createNoteboardStore({ boardFile: path.join(dataDirectory, "noteboard.json"), auditFile: path.join(dataDirectory, "noteboard-audit.json") });
   await noteboard.load();
 
@@ -61,6 +64,8 @@ export async function createHostServer({
   let loopbackListener;
   let activePort = port;
   let hostingEnabled = false;
+  let hostingTransition = false;
+  let communityDeleting = false;
   let refreshTimer;
   let noteboardTimer;
 
@@ -99,6 +104,16 @@ export async function createHostServer({
         continue;
       }
       response.write("event: noteboard-changed\ndata: {}\n\n");
+    }
+  }
+
+  function broadcastCommunityChanged() {
+    for (const response of feedEventClients) {
+      if (response.destroyed || response.writableEnded) {
+        feedEventClients.delete(response);
+        continue;
+      }
+      response.write("event: community-changed\ndata: {}\n\n");
     }
   }
 
@@ -338,10 +353,19 @@ export async function createHostServer({
   }
 
   async function enableHosting() {
-    const { interfaces, failures } = await syncLanListeners();
-    if (interfaces.length === 0) throw new Error("Connect the host computer to a private Wi-Fi or LAN network first.");
-    if (lanListeners.size === 0) throw new Error(failures[0] || "Could not open a listener on the venue network.");
-    hostingEnabled = true;
+    if (communityDeleting) throw Object.assign(new Error("Community changes are in progress."), { status: 409 });
+    if (hostingTransition) throw Object.assign(new Error("Guest hosting is already changing."), { status: 409 });
+    if (!venueCommunity.exists()) throw Object.assign(new Error("Create a community before enabling guest hosting."), { status: 409 });
+    hostingTransition = true;
+    try {
+      const { interfaces, failures } = await syncLanListeners();
+      if (communityDeleting) throw Object.assign(new Error("Community changes are in progress."), { status: 409 });
+      if (interfaces.length === 0) throw new Error("Connect the host computer to a private Wi-Fi or LAN network first.");
+      if (lanListeners.size === 0) throw new Error(failures[0] || "Could not open a listener on the venue network.");
+      hostingEnabled = true;
+    } finally {
+      hostingTransition = false;
+    }
   }
 
   app.use("/api/admin", requireLoopback);
@@ -351,9 +375,52 @@ export async function createHostServer({
     response.set("Cache-Control", "no-store").json({
       authenticated: auth.isAuthenticated(request),
       hostingEnabled,
+      communityExists: venueCommunity.exists(),
       port: activePort,
       interfaces: getPrivateIPv4Interfaces(interfacesProvider()),
     });
+  });
+
+  app.get("/api/admin/community", requireOwner, (_request, response) => {
+    response.set("Cache-Control", "no-store").json({ community: venueCommunity.get() });
+  });
+
+  app.post("/api/admin/community", requireOwner, async (request, response) => {
+    try {
+      const saved = await venueCommunity.create(request.body);
+      broadcastCommunityChanged();
+      response.status(201).set("Cache-Control", "no-store").json({ community: saved });
+    } catch (error) { sendCommunityError(response, error, "Could not create the community."); }
+  });
+
+  app.patch("/api/admin/community", requireOwner, async (request, response) => {
+    try {
+      const saved = await venueCommunity.update(request.body);
+      broadcastCommunityChanged();
+      response.set("Cache-Control", "no-store").json({ community: saved });
+    } catch (error) { sendCommunityError(response, error, "Could not update the community."); }
+  });
+
+  app.delete("/api/admin/community", requireOwner, async (request, response) => {
+    if (!venueCommunity.exists()) return response.status(404).json({ error: "There is no community to delete." });
+    if (hostingEnabled || hostingTransition) return response.status(409).json({ error: "Disable guest hosting before deleting the community." });
+    if (!await auth.verifyPassword(request.body?.password)) return response.status(401).json({ error: "The owner password is incorrect." });
+    if (hostingEnabled || hostingTransition) return response.status(409).json({ error: "Disable guest hosting before deleting the community." });
+    if (communityDeleting) return response.status(409).json({ error: "Community deletion is already in progress." });
+    communityDeleting = true;
+    try {
+      await community.clear();
+      await userAuth.clear();
+      await noteboard.clear();
+      await venueCommunity.remove();
+      broadcastCommunityChanged();
+      response.set("Cache-Control", "no-store").json({ community: null });
+    } catch (error) { sendCommunityError(response, error, "Could not delete the community and its data."); }
+    finally { communityDeleting = false; }
+  });
+
+  app.get("/api/community/config", (_request, response) => {
+    response.set("Cache-Control", "no-store").json({ community: venueCommunity.get() });
   });
 
   app.get("/api/admin/moderation/feed", requireOwner, (_request, response) => {

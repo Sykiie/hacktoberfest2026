@@ -189,6 +189,10 @@ export function createCommunityStore(filePath) {
     });
   }
 
+  async function clear() {
+    await mutate((nextPosts) => { nextPosts.splice(0); });
+  }
+
   return {
     load,
     list: (viewerKey = null) => posts.map((post) => publicPost(post, viewerKey)),
@@ -199,5 +203,6 @@ export function createCommunityStore(filePath) {
     createComment,
     updateComment,
     deleteComment,
+    clear,
   };
 }
