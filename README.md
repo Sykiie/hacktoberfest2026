@@ -26,9 +26,9 @@ The admin page and its actions are restricted by the server to loopback connecti
 
 ## If a guest cannot connect
 
+- On the **host computer**, set the venue Wi-Fi network profile to **Private** (not **Public**). On Windows, open **Settings > Network & internet > Wi-Fi > [connected network] > Network profile type** and select **Private**. This allows Windows Firewall to apply the private-network rules needed for guest devices to reach the host.
 - Confirm that the host and guest device are on the same venue Wi-Fi or local network.
 - Confirm that the owner enabled hosting and selected the address belonging to the venue Wi-Fi.
-- On Windows, set the venue Wi-Fi network profile to **Private** (not **Public**) in **Settings > Network & internet > Wi-Fi > [connected network] > Network profile type**. This lets Windows Firewall apply private-network rules for guest hosting.
 - Allow Node.js or the selected port through the host computer's firewall on the private network.
 - Check whether the router or access point enables client isolation. This prevents devices from reaching each other even when they use the same Wi-Fi name.
 - Reconnect the host to Wi-Fi and refresh the admin screen if its local address changes.
