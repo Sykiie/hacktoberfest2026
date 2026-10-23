@@ -71,9 +71,8 @@ test("community APIs protect authorship and owner moderation identity on loopbac
 
 test("AI moderation settings are owner-only and never return the saved API key", async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "local-community-ai-"));
-  t.after(() => rm(directory, { recursive: true, force: true }));
   const host = await createHostServer({ port: 0, dataDirectory: directory, interfacesProvider: () => ({}) });
-  t.after(() => host.close());
+  t.after(async () => { await host.close(); await rm(directory, { recursive: true, force: true }); });
   await host.start();
   const base = "http://127.0.0.1:" + host.port;
   const request = async (url, method = "GET", body, cookie = "") => {
