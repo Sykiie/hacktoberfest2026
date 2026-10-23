@@ -1,16 +1,33 @@
-# hacktoberfest2026
-Project for Hacktoberfest 2026 Competition from team Gemma&Us
-
 # Locomi
 
 Locomi is an open-source, self-hosted web app for a temporary online community around a physical space. Guests on the venue's local network can use the Shared Feed and Noteboard modules. They can publish posts and comments, or place short notes on a shared visual board. The host can privately reveal account identities and moderate content from the loopback-only admin interface.
 
+## Architecture
+
+Locomi uses React 19 and Vite 7 for the browser interface and Node.js with Express 5 for the venue host. Vite builds the interface into `dist/`; the host serves those files and the JSON APIs from one Node.js process. Guests reach that process over the venue's private IPv4 network only while the owner enables hosting. Owner administration stays on loopback.
+
+```text
+Guest browser ── HTTP on venue LAN ──┐
+                                     ├── Node.js / Express host ── local data/ files
+Owner browser ── loopback only ──────┘           │
+                                                 ├── React/Vite static build
+                                                 ├── community and account stores
+                                                 ├── optional AI moderation provider
+                                                 └── Server-Sent Events for live updates
+```
+
+The host owns validation, authentication, moderation, persistence, and venue-network access. The browser owns presentation and interaction; it never receives the AI provider key. The host rejects guest API requests for disabled modules, even when a visitor calls an endpoint directly. JSON stores and process-local sessions keep setup simple for one venue computer. `shared/community-options.js` is the shared catalog for venue types and feature-module IDs and labels, so the server and browser validate and display the same options.
+
+## Technology impact
+
+The app runs on a venue computer already connected to Wi-Fi or LAN, without a hosted account service. React and Vite provide a responsive guest and owner interface; Express serves the local APIs; Node.js opens guest listeners only on private IPv4 addresses and keeps owner routes loopback-only. Optional moderation can use Ollama on the host or a host-configured OpenAI-compatible HTTPS provider. Cloud moderation sends contribution text to that provider; local Ollama keeps it on the venue computer.
+
 ## Host setup
 
-Requirements: Node.js 20 or later, the project dependencies, and a computer connected to the venue Wi-Fi or LAN.
+Requirements: Node.js 22.12 or later (or Node.js 24 or later), the project dependencies, and a computer connected to the venue Wi-Fi or LAN.
 
 1. Clone or copy this project to the venue computer.
-2. From the project folder, install dependencies with `npm install`.
+2. From the project folder, install the locked dependencies with `npm ci`.
 3. Build the React interface with `npm run build`.
 4. Start the app with `npm start`. Allow Node.js through the computer's firewall on the private network if prompted.
 5. Open `http://127.0.0.1:3000/` (or `/admin`) on the host computer to reach the admin screen.
@@ -53,7 +70,9 @@ The current community modules do not include feed reactions, attachments, privat
 
 ## Community modules and Noteboard
 
-- The community opens with **Shared Feed** and **Noteboard** enabled by default, each in its own guest-facing tab. Module selection and per-venue feature settings are not available yet.
+- The host can create one venue community, choose a venue type and name, and enable one or more feature modules. **Shared Feed** and **Noteboard** are enabled by default and appear in separate guest-facing tabs. Venue types include Cafe, Library, Coworking Space, Community Center, and a custom type.
+- The shared module catalog is in `shared/community-options.js`. A new module needs a stable ID and label there, a guest interface, server routes and persistence, host moderation where applicable, and unit/integration tests. See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete path.
+- To add a standard venue type, add it to the shared `VENUE_TYPES` catalog. Use **Other** when a host needs a venue type that is not in the standard list.
 - The Noteboard is a shared board rendered with the same relative layout on phones and computers. Click the board to choose a note's top-left position. Notes can overlap, but a placement is rejected if it would cover more than 30% of any note underneath, including combined coverage from several notes. While writing, authors can choose whether a calendar date appears on their note; it is shown by default, and times are never displayed. After publication, note text and position are final; authors cannot edit or move notes.
 - Notes contain up to 500 characters and have a public display name (up to 32 characters). Signed-in authors may choose any display name; the host can still see the account username.
 - Signed-in notes publish immediately after confirmation. The account then has a one-minute server-enforced cooldown that prevents posting another note or deleting notes. Authors can delete their own notes after the cooldown.
@@ -69,6 +88,18 @@ The current community modules do not include feed reactions, attachments, privat
 
 ## Development
 
+- `npm ci` installs the locked dependencies. Node.js 22.12+ or 24+ is supported.
 - `npm run dev` starts Vite for local UI work. Run `npm start` in a second terminal to provide the admin APIs.
-- `npm test` runs the network, authentication, and host lifecycle tests.
+- `npm test` runs unit and integration tests for the stores, authentication, community APIs, and host lifecycle.
+- `npm run check` runs Node.js syntax checks over server code, shared catalogs, scripts, and tests; `npm run build` parses and bundles the React interface.
+- `npm run check:docs` checks that required contributor documents exist and their relative Markdown links resolve.
 - `npm run build` creates the static files served by the host process.
+- GitHub Actions runs tests, syntax and documentation checks, the production build, and a production dependency audit on pull requests and pushes. A separate Gitleaks job scans repository history for committed credentials.
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, testing, module and venue-type extensions, and pull-request guidance. Current behavior is specified in `openspec/specs/`; completed changes are recorded in `openspec/changes/archive/`. Read [SECURITY.md](SECURITY.md) before configuring a cloud moderation key. The project is released under the [MIT License](LICENSE); version history is in [CHANGELOG.md](CHANGELOG.md) and the current release series is in `package.json`.
+
+For the judging demo, see [DEMO_SCRIPT.md](DEMO_SCRIPT.md) for a one-minute recording plan using the running app and a second device.
+
+## Deployment and scale
+
+Locomi is designed for one venue community on one self-hosted computer. Guest feed requests return cursor-based pages of 30 posts, so the initial page and routine refreshes stay bounded as the feed grows. The current JSON stores still rewrite local files on updates, sessions live in process memory, and live events are broadcast by that process. This keeps the venue setup low-cost and easy to back up, and suits a small or medium local event, but does not provide horizontal scaling or shared sessions across hosts. A larger multi-venue deployment should first replace the JSON stores with a database-backed store, move sessions and event delivery to shared services, and add HTTPS and load testing. Contributors can keep the current store contracts while introducing those adapters incrementally.

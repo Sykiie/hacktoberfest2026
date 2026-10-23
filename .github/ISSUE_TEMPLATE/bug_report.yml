@@ -1,0 +1,29 @@
+name: Bug report
+description: Report a reproducible problem in Locomi.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include passwords, API keys, personal data, or private venue information.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: 1. Open ... 2. Select ... 3. Observe ...
+    validations:
+      required: true
+  - type: input
+    id: runtime
+    attributes:
+      label: Node.js version and operating system
+      placeholder: Node.js 22.x, Windows 11
+    validations:
+      required: true

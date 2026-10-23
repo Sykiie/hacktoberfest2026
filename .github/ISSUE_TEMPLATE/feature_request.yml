@@ -1,0 +1,28 @@
+name: Feature request
+description: Suggest a feature or improvement for Locomi.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include passwords, API keys, personal data, or private venue information.
+  - type: textarea
+    id: need
+    attributes:
+      label: What need should this address?
+      description: Explain who needs it and what they are trying to do.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+      description: Describe the behavior or feature you have in mind.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Other approaches considered
+    validations:
+      required: false

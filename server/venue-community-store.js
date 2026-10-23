@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { COMMUNITY_MODULES, CUSTOM_VENUE_TYPE, VENUE_TYPES } from "../shared/community-options.js";
 
-const MODULES = ["feed", "noteboard"];
+const MODULE_IDS = new Set(COMMUNITY_MODULES.map((module) => module.id));
 
 function invalid(message) {
   return Object.assign(new TypeError(message), { status: 400 });
@@ -10,22 +11,22 @@ function invalid(message) {
 
 export function normalizeVenueCommunity(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw invalid("Enter community details.");
-  if (!new Set(["Cafe", "Other"]).has(input.venueType)) throw invalid("Choose Cafe or Other as the venue type.");
+  if (!VENUE_TYPES.includes(input.venueType)) throw invalid("Choose a supported venue type.");
 
   const venueName = typeof input.venueName === "string" ? input.venueName.trim() : "";
   if (!venueName) throw invalid("Enter a venue name.");
   if (venueName.length > 80) throw invalid("Venue names must be 80 characters or fewer.");
 
-  const customVenueType = input.venueType === "Other" && typeof input.customVenueType === "string"
+  const customVenueType = input.venueType === CUSTOM_VENUE_TYPE && typeof input.customVenueType === "string"
     ? input.customVenueType.trim()
     : "";
-  if (input.venueType === "Other" && !customVenueType) throw invalid("Enter a custom venue type.");
+  if (input.venueType === CUSTOM_VENUE_TYPE && !customVenueType) throw invalid("Enter a custom venue type.");
   if (customVenueType.length > 60) throw invalid("Custom venue types must be 60 characters or fewer.");
 
-  if (!Array.isArray(input.enabledModules) || input.enabledModules.some((module) => !MODULES.includes(module))) {
+  if (!Array.isArray(input.enabledModules) || input.enabledModules.some((module) => !MODULE_IDS.has(module))) {
     throw invalid("Choose valid community modules.");
   }
-  const enabledModules = MODULES.filter((module) => input.enabledModules.includes(module));
+  const enabledModules = COMMUNITY_MODULES.filter((module) => input.enabledModules.includes(module.id)).map((module) => module.id);
   if (enabledModules.length === 0) throw invalid("Enable at least one community feature.");
 
   return { venueType: input.venueType, customVenueType, venueName, enabledModules };

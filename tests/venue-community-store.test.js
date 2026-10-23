@@ -22,6 +22,21 @@ test("creates and reloads a Cafe community with selected modules", async (t) => 
   assert.deepEqual(reloaded.get(), created);
 });
 
+test("accepts registered venue types and keeps custom venue types extensible", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "local-venue-community-types-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const store = createVenueCommunityStore(path.join(directory, "venue-community.json"));
+  await store.load();
+
+  const library = await store.create({ venueType: "Library", venueName: "Community Library", enabledModules: ["feed"] });
+  assert.equal(library.venueType, "Library");
+  assert.equal(library.customVenueType, "");
+
+  const custom = await store.update({ venueType: "Other", customVenueType: "Makerspace", venueName: "The Workshop", enabledModules: ["noteboard"] });
+  assert.deepEqual(custom, { venueType: "Other", customVenueType: "Makerspace", venueName: "The Workshop", enabledModules: ["noteboard"] });
+  await assert.rejects(store.update({ venueType: "Unregistered", venueName: "Unknown", enabledModules: ["feed"] }), { status: 400 });
+});
+
 test("requires a custom type for Other and validates names and module selection", async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "local-venue-community-validation-"));
   t.after(() => rm(directory, { recursive: true, force: true }));

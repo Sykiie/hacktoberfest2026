@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { createNoteboardStore } from "../server/noteboard-store.js";
 import { createHostServer } from "../server/host.js";
+import { configureTestCommunity } from "./helpers/venue-community.js";
 
 async function fixture(t, clock = { value: Date.now() }) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "local-community-noteboard-"));
@@ -112,6 +113,7 @@ test("serves guest submissions and host moderation; enforces global freezes and 
   t.after(() => host.close());
   await host.start();
   const base = `http://127.0.0.1:${host.port}`;
+  await configureTestCommunity(base, ["feed", "noteboard"]);
   async function request(url, method = "GET", body, cookie = "", headers = {}) {
     const response = await fetch(`${base}${url}`, { method, headers: { ...(body ? { "Content-Type": "application/json" } : {}), ...(cookie ? { Cookie: cookie } : {}), ...headers }, ...(body ? { body: JSON.stringify(body) } : {}) });
     return { response, data: await response.json().catch(() => ({})) };

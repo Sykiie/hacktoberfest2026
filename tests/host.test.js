@@ -6,6 +6,7 @@ import path from "node:path";
 import { isAdminLoopbackRequest } from "../server/auth.js";
 import { createHostServer } from "../server/host.js";
 import { getPrivateIPv4Interfaces } from "../server/network.js";
+import { configureTestCommunity } from "./helpers/venue-community.js";
 
 test("admin guard denies requests received on a LAN address", () => {
   assert.equal(isAdminLoopbackRequest({ socket: { localAddress: "192.168.1.20" } }), false);
@@ -19,6 +20,7 @@ test("community APIs protect authorship and owner moderation identity on loopbac
   t.after(() => host.close());
   await host.start();
   const base = `http://127.0.0.1:${host.port}`;
+  await configureTestCommunity(base, ["feed"]);
   async function request(url, method = "GET", body, cookie = "") {
     const response = await fetch(`${base}${url}`, {
       method,
@@ -41,6 +43,8 @@ test("community APIs protect authorship and owner moderation identity on loopbac
   const publicFeed = await request("/api/community/feed");
   assert.equal(publicFeed.data.posts[0].author, "Anonymous");
   assert.equal(publicFeed.data.posts[0].comments[0].author, "Anonymous");
+  assert.equal(publicFeed.data.nextCursor, null);
+  assert.equal((await request("/api/community/feed?cursor=invalid")).response.status, 400);
   assert.equal("authorKey" in publicFeed.data.posts[0], false);
   assert.equal("authorName" in publicFeed.data.posts[0], false);
   assert.equal(publicFeed.data.posts[0].canEdit, false);
@@ -90,7 +94,6 @@ test("AI moderation settings are owner-only and never return the saved API key",
 
 test("AI checks recover from provider outage and remain private to host moderation", async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "local-community-ai-flow-"));
-  t.after(() => rm(directory, { recursive: true, force: true }));
   let available = false;
   const aiFetch = async (_url, options) => available
     ? { ok: true, json: async () => {
@@ -100,9 +103,13 @@ test("AI checks recover from provider outage and remain private to host moderati
     } }
     : { ok: false, status: 503, json: async () => ({ error: { message: "Provider temporarily unavailable" } }) };
   const host = await createHostServer({ port: 0, dataDirectory: directory, interfacesProvider: () => ({}), aiFetch, aiRetryBaseDelayMs: 20, aiRetryIntervalMs: 10 });
-  t.after(() => host.close());
+  t.after(async () => {
+    await host.close();
+    await rm(directory, { recursive: true, force: true });
+  });
   await host.start();
   const base = "http://127.0.0.1:" + host.port;
+  await configureTestCommunity(base, ["feed"]);
   const request = async (url, method = "GET", body, cookie = "") => {
     const response = await fetch(base + url, { method, headers: { ...(body ? { "Content-Type": "application/json" } : {}), ...(cookie ? { Cookie: cookie } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
     return { response, data: await response.json().catch(() => ({})) };
@@ -334,7 +341,7 @@ test("hosting toggle opens a guest-only LAN listener and closes it again", async
   const joinResponse = await fetch(`${loopbackUrl}/api/admin/join?address=${encodeURIComponent(address)}`, { headers: { Cookie: cookie } });
   assert.equal(joinResponse.status, 200);
   const join = await joinResponse.json();
-  assert.equal(join.url, `${lanUrl}/`);
+  assert.equal(join.url, `${lanUrl}/guest`);
   assert.match(join.qrDataUrl, /^data:image\/png;base64,/);
 
   const disableResponse = await fetch(`${loopbackUrl}/api/admin/hosting`, {

@@ -40,6 +40,7 @@ test("owner can read and manage one venue community, and deletion requires passw
     venueType: "Other", customVenueType: "Bookshop", venueName: "Pages", enabledModules: ["feed"],
   }, ownerCookie);
   assert.equal(created.response.status, 201);
+  assert.equal((await request("/api/community/noteboard")).response.status, 404);
   assert.equal((await request("/api/admin/community", "POST", {
     venueType: "Cafe", venueName: "Second", enabledModules: ["feed"],
   }, ownerCookie)).response.status, 409);
@@ -53,6 +54,13 @@ test("owner can read and manage one venue community, and deletion requires passw
   assert.equal(updated.response.status, 200);
   assert.equal(updated.data.community.venueName, "Pages Cafe");
   assert.deepEqual((await request("/api/community/config")).data.community.enabledModules, ["noteboard"]);
+  assert.equal((await request("/api/community/feed")).response.status, 404);
+  assert.equal((await request("/api/community/posts", "POST", { text: "Disabled feature" })).response.status, 404);
+
+  const reenabled = await request("/api/admin/community", "PATCH", {
+    venueType: "Cafe", venueName: "Pages Cafe", enabledModules: ["feed", "noteboard"],
+  }, ownerCookie);
+  assert.equal(reenabled.response.status, 200);
 
   const account = await request("/api/account/register", "POST", { username: "SetupGuest", password: "unique-disposable-password" });
   assert.equal(account.response.status, 200);
@@ -73,8 +81,8 @@ test("owner can read and manage one venue community, and deletion requires passw
   const removed = await request("/api/admin/community", "DELETE", { password: "locomi" }, ownerCookie);
   assert.equal(removed.response.status, 200);
   assert.equal((await request("/api/admin/status")).data.communityExists, false);
-  assert.deepEqual((await request("/api/community/feed")).data.posts, []);
-  assert.deepEqual((await request("/api/community/noteboard")).data.notes, []);
+  assert.equal((await request("/api/community/feed")).response.status, 404);
+  assert.equal((await request("/api/community/noteboard")).response.status, 404);
   assert.deepEqual(await request("/api/admin/moderation/noteboard", "GET", undefined, ownerCookie).then(({ data }) => data), { notes: [], submissions: [], audit: [], accounts: [] });
   assert.equal((await request("/api/account/availability?username=SetupGuest")).data.available, true);
   assert.equal((await request("/api/admin/status", "GET", undefined, ownerCookie)).data.authenticated, true);

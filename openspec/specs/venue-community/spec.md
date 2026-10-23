@@ -7,7 +7,7 @@ Defines the single venue community owned by a host installation, including its v
 ## Requirements
 
 ### Requirement: Create one venue community
-The system SHALL let the owner create one community for the host installation with a venue type, venue name, and enabled feature modules.
+The system SHALL let the owner create one community for the host installation with a registered venue type, venue name, and enabled feature modules. The venue type catalog SHALL be shared by the host API and setup interface, and owners SHALL be able to use a custom type through Other.
 
 #### Scenario: Create a Cafe community
 - **WHEN** the owner selects Cafe, enters a venue name, and chooses feature modules
@@ -16,6 +16,10 @@ The system SHALL let the owner create one community for the host installation wi
 #### Scenario: Create a community with a custom venue type
 - **WHEN** the owner selects Other, enters a custom venue type and venue name, and chooses feature modules
 - **THEN** the system saves the custom type and other community settings
+
+#### Scenario: Add another standard venue type
+- **WHEN** a contributor adds a venue type to the shared venue catalog
+- **THEN** the host accepts it and the setup interface offers it without duplicating the type list
 
 #### Scenario: Owner attempts to create a second community
 - **WHEN** a community already exists on the installation

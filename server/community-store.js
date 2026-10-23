@@ -3,6 +3,28 @@ import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export const MAX_CONTENT_LENGTH = 2000;
+export const DEFAULT_FEED_PAGE_SIZE = 30;
+
+function compareNewestFirst(left, right) {
+  return right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id);
+}
+
+function encodeFeedCursor(post) {
+  return Buffer.from(JSON.stringify({ createdAt: post.createdAt, id: post.id })).toString("base64url");
+}
+
+function decodeFeedCursor(cursor) {
+  if (typeof cursor !== "string" || cursor.length > 256) {
+    throw Object.assign(new TypeError("That feed page cursor is invalid."), { status: 400 });
+  }
+  try {
+    const decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+    if (!decoded || typeof decoded.createdAt !== "string" || !Number.isFinite(Date.parse(decoded.createdAt)) || typeof decoded.id !== "string" || !decoded.id) throw new Error("Invalid cursor.");
+    return decoded;
+  } catch {
+    throw Object.assign(new TypeError("That feed page cursor is invalid."), { status: 400 });
+  }
+}
 
 function validateText(text) {
   if (typeof text !== "string" || !text.trim()) {
@@ -244,9 +266,23 @@ export function createCommunityStore(filePath) {
     return result;
   }
 
+  function listPage(viewerKey = null, cursor = null) {
+    const sortedPosts = [...posts].sort(compareNewestFirst);
+    const boundary = cursor === null ? null : decodeFeedCursor(cursor);
+    const eligible = boundary
+      ? sortedPosts.filter((post) => post.createdAt < boundary.createdAt || (post.createdAt === boundary.createdAt && post.id.localeCompare(boundary.id) < 0))
+      : sortedPosts;
+    const page = eligible.slice(0, DEFAULT_FEED_PAGE_SIZE);
+    return {
+      posts: page.map((post) => publicPost(post, viewerKey)),
+      nextCursor: eligible.length > page.length ? encodeFeedCursor(page[page.length - 1]) : null,
+    };
+  }
+
   return {
     load,
     list: (viewerKey = null) => posts.map((post) => publicPost(post, viewerKey)),
+    listPage,
     listForModeration: () => posts.map(moderationPost),
     createPost,
     updatePost,

@@ -7,11 +7,17 @@ Defines the venue community's feature modules and how visitors navigate between 
 ## Requirements
 
 ### Requirement: Enable the initial community modules by default
-The system SHALL provide Shared Feed and Noteboard as distinct community feature modules and SHALL enable both modules by default for a local community.
+The system SHALL provide Shared Feed and Noteboard as distinct community feature modules and SHALL enable both modules by default for a local community. The module catalog SHALL be shared by the host API and guest interface so a contributor can register a module without duplicating its identifier or label across the setup flow.
 
 #### Scenario: Start a local community
 - **WHEN** a venue starts its local community with the default module configuration
 - **THEN** Shared Feed and Noteboard are both enabled
+
+#### Scenario: Register another feature module
+- **WHEN** a contributor adds a module descriptor to the shared catalog and implements its guest interface and server routes
+- **THEN** the host validates the module using that catalog
+- **AND** community setup offers it as a selectable feature
+- **AND** the guest navigation uses its registered label when it is enabled
 
 ### Requirement: Navigate enabled modules in separate tabs
 The guest-facing community interface SHALL present each enabled module in its own tab and SHALL display the selected module's interface.
@@ -30,6 +36,7 @@ The system SHALL let the host enable or disable Shared Feed and Noteboard for th
 #### Scenario: Host disables a module
 - **WHEN** the host saves community settings with one existing module disabled
 - **THEN** guests do not see that module's tab or interface
+- **AND** requests to that module's guest API are rejected
 - **AND** guests can still use the enabled module
 
 #### Scenario: Host re-enables a module

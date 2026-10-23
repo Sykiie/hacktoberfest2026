@@ -38,8 +38,8 @@ test("reports a changed address on the next interface snapshot", () => {
   assert.deepEqual(after.map(({ address }) => address), ["192.168.1.44"]);
 });
 
-test("builds the join URL from the selected address and actual port", () => {
-  assert.equal(buildJoinUrl("192.168.1.25", 3000), "http://192.168.1.25:3000/");
+test("builds the guest join URL from the selected address and actual port", () => {
+  assert.equal(buildJoinUrl("192.168.1.25", 3000), "http://192.168.1.25:3000/guest");
   assert.throws(() => buildJoinUrl("127.0.0.1", 3000), /private IPv4/);
   assert.throws(() => buildJoinUrl("192.168.1.25", 70000), /valid port/);
 });
@@ -50,7 +50,7 @@ test("encodes exactly the URL returned to the host screen", async () => {
     encodedValue = url;
     return "data:image/png;base64,qr";
   });
-  assert.equal(payload.url, "http://192.168.1.25:3000/");
+  assert.equal(payload.url, "http://192.168.1.25:3000/guest");
   assert.equal(encodedValue, payload.url);
   assert.equal(payload.qrDataUrl, "data:image/png;base64,qr");
 });

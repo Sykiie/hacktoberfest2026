@@ -74,6 +74,26 @@ test("accountless posts and comments are anonymous and cannot be managed by an u
   await assert.rejects(store.deleteComment({ postId, commentId, authorKey: null }), { status: 403 });
 });
 
+test("feed pages are bounded, newest-first, and continue without duplicates", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "local-community-feed-pages-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const store = createCommunityStore(path.join(directory, "community.json"));
+  await store.load();
+
+  for (let index = 0; index < 35; index += 1) await store.createPost({ text: `Post ${index}` });
+
+  const firstPage = store.listPage();
+  const secondPage = store.listPage(null, firstPage.nextCursor);
+  assert.equal(firstPage.posts.length, 30);
+  assert.equal(firstPage.nextCursor !== null, true);
+  assert.equal(secondPage.posts.length, 5);
+  assert.equal(secondPage.nextCursor, null);
+  assert.equal(new Set([...firstPage.posts, ...secondPage.posts].map((post) => post.id)).size, 35);
+  const expectedOrder = store.list().sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)).map((post) => post.id);
+  assert.deepEqual([...firstPage.posts, ...secondPage.posts].map((post) => post.id), expectedOrder);
+  assert.throws(() => store.listPage(null, "invalid"), { status: 400 });
+});
+
 test("AI review state persists privately, rejects stale results, and resets after edits", async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "local-community-ai-review-"));
   t.after(() => rm(directory, { recursive: true, force: true }));

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import projectLogo from "./assets/project-logo.jpg";
+import { COMMUNITY_MODULES, CUSTOM_VENUE_TYPE, DEFAULT_COMMUNITY_MODULE_IDS, VENUE_TYPES } from "../shared/community-options.js";
 
 async function requestJson(url, options = {}) {
   const response = await fetch(url, {
@@ -59,6 +60,8 @@ function GuestWelcome() {
   const [availability, setAvailability] = useState("");
   const [user, setUser] = useState(null);
   const [posts, setPosts] = useState([]);
+  const [nextFeedCursor, setNextFeedCursor] = useState(null);
+  const [feedLoadingMore, setFeedLoadingMore] = useState(false);
   const [feedError, setFeedError] = useState("");
   const [postText, setPostText] = useState("");
   const [postAnonymous, setPostAnonymous] = useState(false);
@@ -115,11 +118,32 @@ function GuestWelcome() {
       const result = await requestJson("/api/community/feed");
       const version = Date.now();
       setPosts(result.posts.map((post) => ({ ...post, profileImageUrl: post.profileImageUrl ? `${post.profileImageUrl}?v=${version}` : null, comments: post.comments.map((comment) => ({ ...comment, profileImageUrl: comment.profileImageUrl ? `${comment.profileImageUrl}?v=${version}` : null })) })));
+      setNextFeedCursor(result.nextCursor);
       setFeedError("");
     } catch (reason) {
       setFeedError(reason.message);
     }
   }, []);
+
+  async function loadOlderFeedPosts() {
+    if (!nextFeedCursor || feedLoadingMore) return;
+    setFeedLoadingMore(true);
+    try {
+      const result = await requestJson(`/api/community/feed?cursor=${encodeURIComponent(nextFeedCursor)}`);
+      const version = Date.now();
+      const olderPosts = result.posts.map((post) => ({ ...post, profileImageUrl: post.profileImageUrl ? `${post.profileImageUrl}?v=${version}` : null, comments: post.comments.map((comment) => ({ ...comment, profileImageUrl: comment.profileImageUrl ? `${comment.profileImageUrl}?v=${version}` : null })) }));
+      setPosts((current) => {
+        const loadedIds = new Set(current.map((post) => post.id));
+        return [...current, ...olderPosts.filter((post) => !loadedIds.has(post.id))];
+      });
+      setNextFeedCursor(result.nextCursor);
+      setFeedError("");
+    } catch (reason) {
+      setFeedError(reason.message);
+    } finally {
+      setFeedLoadingMore(false);
+    }
+  }
 
   const refreshCommunityConfig = useCallback(async () => {
     try {
@@ -399,12 +423,16 @@ function GuestWelcome() {
       </details> : <>Continuing as guest<button className="text-button" type="button" onClick={() => { setError(""); setScreen("login"); }}>Sign in</button></>}{profileImageError && <span className="error-message" role="alert">{profileImageError}</span>}</div></header>
       {pendingProfileImage && <ProfileImageCrop file={pendingProfileImage} onCancel={() => setPendingProfileImage(null)} onConfirm={updateMemberImage} busy={profileImageBusy} />}
       {enabledModules.length > 0 && <nav className="community-module-tabs" role="tablist" aria-label="Community modules">
-        {enabledModules.includes("feed") && <button type="button" role="tab" aria-selected={communityTab === "feed"} className={communityTab === "feed" ? "module-tab module-tab-active" : "module-tab"} onClick={() => setCommunityTab("feed")}>Shared Feed</button>}
-        {enabledModules.includes("noteboard") && <button type="button" role="tab" aria-selected={communityTab === "noteboard"} className={communityTab === "noteboard" ? "module-tab module-tab-active" : "module-tab"} onClick={() => setCommunityTab("noteboard")}>Noteboard</button>}
+        {enabledModules.map((moduleId) => {
+          const module = COMMUNITY_MODULES.find((item) => item.id === moduleId);
+          if (!module) return null;
+          const selected = communityTab === module.id;
+          return <button key={module.id} type="button" role="tab" aria-selected={selected} className={selected ? "module-tab module-tab-active" : "module-tab"} onClick={() => setCommunityTab(module.id)}>{module.label}</button>;
+        })}
       </nav>}
       {enabledModules.length === 0 && <section className="community-feed community-unconfigured" role="status"><h2>No community is set up yet</h2><p>The host needs to create a community before guests can join.</p></section>}
       {enabledModules.includes("feed") && communityTab === "feed" && <section className="community-feed" aria-label="Community feed">
-        <header className="feed-heading"><div><p className="eyebrow">AROUND THIS SPACE</p><h2>Community feed</h2></div><span>{posts.length} {posts.length === 1 ? "post" : "posts"}</span></header>
+        <header className="feed-heading"><div><p className="eyebrow">AROUND THIS SPACE</p><h2>Community feed</h2></div><span>{nextFeedCursor ? `Showing ${posts.length}+ posts` : `${posts.length} ${posts.length === 1 ? "post" : "posts"}`}</span></header>
         <form className="composer-card" onSubmit={publishPost}>
           <label htmlFor="new-post">Share something with the community</label>
           <textarea id="new-post" maxLength={2000} rows={3} value={postText} onChange={(event) => setPostText(event.target.value)} placeholder="Write a post…" required />
@@ -421,6 +449,7 @@ function GuestWelcome() {
             <form className="comment-form" onSubmit={(event) => publishComment(event, post.id)}><input maxLength={2000} aria-label="Write a comment" placeholder={user ? "Add a comment…" : "Add an anonymous comment…"} value={commentDrafts[post.id] || ""} onChange={(event) => setCommentDrafts((items) => ({ ...items, [post.id]: event.target.value }))} required />{user && <label className="toggle-label compact-toggle"><input type="checkbox" checked={Boolean(commentAnonymous[post.id])} onChange={(event) => setCommentAnonymous((items) => ({ ...items, [post.id]: event.target.checked }))} /> Anonymous</label>}<button type="submit" aria-label="Publish comment">↗</button></form>
           </div>
         </article>)}
+        {nextFeedCursor && <button className="secondary-button" type="button" onClick={loadOlderFeedPosts} disabled={feedLoadingMore}>{feedLoadingMore ? "Loading older posts…" : "Load older posts"}</button>}
       </section>}
       {enabledModules.includes("noteboard") && communityTab === "noteboard" && <section className="community-feed noteboard-page" aria-label="Noteboard">
         <header className="feed-heading"><div><p className="eyebrow">LEAVE A LITTLE NOTE</p><h2>Community Noteboard</h2></div><span>{notes.length} {notes.length === 1 ? "note" : "notes"}</span></header>
@@ -743,7 +772,7 @@ function AdminDashboard({ initialStatus, onLogout }) {
   const [community, setCommunity] = useState(null);
   const [communityLoaded, setCommunityLoaded] = useState(!initialStatus.communityExists);
   const [communityPrompt, setCommunityPrompt] = useState(null);
-  const [communityDraft, setCommunityDraft] = useState({ venueType: "Cafe", customVenueType: "", venueName: "", enabledModules: ["feed", "noteboard"] });
+  const [communityDraft, setCommunityDraft] = useState({ venueType: "Cafe", customVenueType: "", venueName: "", enabledModules: [...DEFAULT_COMMUNITY_MODULE_IDS] });
   const [communityStep, setCommunityStep] = useState(0);
   const [communityBusy, setCommunityBusy] = useState(false);
   const [communityError, setCommunityError] = useState("");
@@ -828,7 +857,7 @@ function AdminDashboard({ initialStatus, onLogout }) {
     setCommunityStep(0);
     setContinueHostingAfterCreate(continueHosting);
     setCommunityDraft(community ? { ...community, enabledModules: [...community.enabledModules] } : {
-      venueType: "Cafe", customVenueType: "", venueName: "", enabledModules: ["feed", "noteboard"],
+      venueType: "Cafe", customVenueType: "", venueName: "", enabledModules: [...DEFAULT_COMMUNITY_MODULE_IDS],
     });
     setCommunityPrompt(mode);
   }
@@ -1008,7 +1037,7 @@ function AdminDashboard({ initialStatus, onLogout }) {
               <p className="eyebrow">COMMUNITY SETUP</p>
               {status.communityExists
                 ? communityLoaded
-                  ? <><h3>{community?.venueName || "Community"}</h3><p className="community-summary-copy">{community?.venueType === "Other" ? community.customVenueType : community?.venueType} · {community?.enabledModules?.map((module) => module === "feed" ? "Shared Feed" : "Noteboard").join(", ")}</p></>
+                  ? <><h3>{community?.venueName || "Community"}</h3><p className="community-summary-copy">{community?.venueType === CUSTOM_VENUE_TYPE ? community.customVenueType : community?.venueType} · {community?.enabledModules?.map((moduleId) => COMMUNITY_MODULES.find((module) => module.id === moduleId)?.label || moduleId).join(", ")}</p></>
                   : <p className="community-summary-copy">Loading community details…</p>
                 : <p className="community-summary-copy">Create a community to set up this venue and choose its features.</p>}
             </div>
@@ -1084,9 +1113,9 @@ function AdminDashboard({ initialStatus, onLogout }) {
             {communityStep === 0 && <>
               <label htmlFor="community-venue-type">Venue type</label>
               <select id="community-venue-type" value={communityDraft.venueType} onChange={(event) => setCommunityDraft((current) => ({ ...current, venueType: event.target.value }))}>
-                <option value="Cafe">Cafe</option><option value="Other">Other</option>
+                {VENUE_TYPES.map((venueType) => <option key={venueType} value={venueType}>{venueType}</option>)}
               </select>
-              {communityDraft.venueType === "Other" && <><label htmlFor="community-custom-type">Custom venue type</label><input id="community-custom-type" type="text" maxLength={60} value={communityDraft.customVenueType} onChange={(event) => setCommunityDraft((current) => ({ ...current, customVenueType: event.target.value }))} placeholder="For example, bookstore" required /></>}
+              {communityDraft.venueType === CUSTOM_VENUE_TYPE && <><label htmlFor="community-custom-type">Custom venue type</label><input id="community-custom-type" type="text" maxLength={60} value={communityDraft.customVenueType} onChange={(event) => setCommunityDraft((current) => ({ ...current, customVenueType: event.target.value }))} placeholder="For example, bookstore" required /></>}
             </>}
             {communityStep === 1 && <>
               <label htmlFor="community-venue-name">Venue name</label>
@@ -1094,8 +1123,7 @@ function AdminDashboard({ initialStatus, onLogout }) {
             </>}
             {communityStep === 2 && <fieldset className="community-module-checklist">
               <legend>Feature modules</legend>
-              <label><input type="checkbox" checked={communityDraft.enabledModules.includes("feed")} disabled={communityDraft.enabledModules.length === 1 && communityDraft.enabledModules.includes("feed")} onChange={() => toggleModule("feed")} /> Shared Feed</label>
-              <label><input type="checkbox" checked={communityDraft.enabledModules.includes("noteboard")} disabled={communityDraft.enabledModules.length === 1 && communityDraft.enabledModules.includes("noteboard")} onChange={() => toggleModule("noteboard")} /> Noteboard</label>
+              {COMMUNITY_MODULES.map((module) => <label key={module.id}><input type="checkbox" checked={communityDraft.enabledModules.includes(module.id)} disabled={communityDraft.enabledModules.length === 1 && communityDraft.enabledModules.includes(module.id)} onChange={() => toggleModule(module.id)} /> {module.label}</label>)}
               <p className="field-hint">Choose at least one feature.</p>
             </fieldset>}
             {communityError && <p className="error-message" role="alert">{communityError}</p>}

@@ -78,6 +78,7 @@ export async function createHostServer({
   let noteboardTimer;
   let aiRetryTimer;
   let aiWorkerRunning = false;
+  let aiWorkerTask = Promise.resolve();
   const aiRetryState = new Map();
   let aiGlobalPauseUntil = 0;
 
@@ -132,7 +133,10 @@ export async function createHostServer({
   }
 
   function scheduleAiChecks() {
-    queueMicrotask(() => processAiChecks().catch((error) => console.error("AI moderation check failed:", error.message)));
+    const task = new Promise((resolve) => queueMicrotask(resolve))
+      .then(processAiChecks)
+      .catch((error) => console.error("AI moderation check failed:", error.message));
+    aiWorkerTask = Promise.all([aiWorkerTask, task]);
   }
 
   app.disable("x-powered-by");
@@ -146,6 +150,15 @@ export async function createHostServer({
   function requireOwner(request, response, next) {
     if (!auth.isAuthenticated(request)) return response.status(401).json({ error: "Sign in to manage hosting." });
     next();
+  }
+
+  function requireEnabledModule(moduleId) {
+    return (_request, response, next) => {
+      if (!venueCommunity.get()?.enabledModules.includes(moduleId)) {
+        return response.status(404).json({ error: "This community feature is not enabled." });
+      }
+      next();
+    };
   }
 
   function sendCommunityError(response, error, fallback) {
@@ -215,9 +228,16 @@ export async function createHostServer({
     response.on("close", cleanup);
   });
 
+  app.use("/api/community/feed", requireEnabledModule("feed"));
+  app.use("/api/community/posts", requireEnabledModule("feed"));
+  app.use("/api/community/noteboard", requireEnabledModule("noteboard"));
+
   app.get("/api/community/feed", (request, response) => {
-    const author = userAuth.identifyUser(request);
-    response.set("Cache-Control", "no-store").json({ posts: community.list(author?.key || null) });
+    try {
+      const author = userAuth.identifyUser(request);
+      const page = community.listPage(author?.key || null, request.query.cursor ?? null);
+      response.set("Cache-Control", "no-store").json(page);
+    } catch (error) { sendCommunityError(response, error, "Could not load the community feed."); }
   });
 
   app.get("/api/community/noteboard", async (request, response) => {
@@ -772,6 +792,7 @@ export async function createHostServer({
       clearInterval(noteboardTimer);
       clearInterval(aiRetryTimer);
       await disableHosting();
+      await aiWorkerTask;
       await closeServer(loopbackListener);
       loopbackListener = undefined;
     },
