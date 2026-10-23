@@ -12,6 +12,7 @@ import { createCommunityStore } from "./community-store.js";
 import { createNoteboardStore } from "./noteboard-store.js";
 import { createVenueCommunityStore } from "./venue-community-store.js";
 import { createAiSettingsStore, classifyBatch } from "./ai-moderation.js";
+import { createProfileImageStore, MAX_PROFILE_IMAGE_SIZE } from "./profile-image-store.js";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const projectDir = path.resolve(currentDir, "..");
@@ -61,6 +62,7 @@ export async function createHostServer({
   await aiSettings.load();
   const venueCommunity = createVenueCommunityStore(path.join(dataDirectory, "venue-community.json"));
   await venueCommunity.load();
+  const profileImages = createProfileImageStore(path.join(dataDirectory, "profile-images"));
   const noteboard = createNoteboardStore({ boardFile: path.join(dataDirectory, "noteboard.json"), auditFile: path.join(dataDirectory, "noteboard-audit.json") });
   await noteboard.load();
 
@@ -436,6 +438,19 @@ export async function createHostServer({
   app.use("/api/admin", requireLoopback);
   app.use("/admin", requireLoopback);
 
+  app.put("/api/admin/community/profile-image", requireOwner, express.raw({ type: "image/*", limit: MAX_PROFILE_IMAGE_SIZE }), async (request, response) => {
+    try {
+      const result = await profileImages.save("venue", request.body, request.get("content-type")?.split(";")[0]);
+      broadcastCommunityChanged();
+      response.set("Cache-Control", "no-store").json(result);
+    } catch (error) { sendCommunityError(response, error, "Could not save the venue image."); }
+  });
+
+  app.delete("/api/admin/community/profile-image", requireOwner, async (_request, response) => {
+    try { await profileImages.remove("venue"); broadcastCommunityChanged(); response.set("Cache-Control", "no-store").json({ ok: true }); }
+    catch (error) { sendCommunityError(response, error, "Could not remove the venue image."); }
+  });
+
   app.get("/api/admin/status", (request, response) => {
     response.set("Cache-Control", "no-store").json({
       authenticated: auth.isAuthenticated(request),
@@ -488,6 +503,7 @@ export async function createHostServer({
     try {
       await community.clear();
       await userAuth.clear();
+      await profileImages.clear();
       await noteboard.clear();
       await venueCommunity.remove();
       broadcastCommunityChanged();
@@ -497,7 +513,45 @@ export async function createHostServer({
   });
 
   app.get("/api/community/config", (_request, response) => {
-    response.set("Cache-Control", "no-store").json({ community: venueCommunity.get() });
+    const community = venueCommunity.get();
+    response.set("Cache-Control", "no-store").json({ community: community ? { ...community, profileImageUrl: "/api/profile-images/venue" } : null });
+  });
+
+  async function serveProfileImage(identity, response) {
+    try {
+      const image = await profileImages.read(identity);
+      if (!image) return response.status(404).end();
+      return response.set({ "Content-Type": image.contentType, "Content-Length": image.buffer.length, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" }).send(image.buffer);
+    } catch (error) { return response.status(Number.isInteger(error.status) ? error.status : 500).end(); }
+  }
+
+  app.get("/api/profile-images/venue", (_request, response) => serveProfileImage("venue", response));
+  app.get("/api/profile-images/members/:username", (request, response) => {
+    if (!/^[A-Za-z0-9_]{3,24}$/.test(request.params.username)) return response.status(404).end();
+    if (userAuth.isAvailable(request.params.username)) return response.status(404).end();
+    return serveProfileImage(request.params.username.toLowerCase(), response);
+  });
+
+  app.put("/api/account/profile-image", express.raw({ type: "image/*", limit: MAX_PROFILE_IMAGE_SIZE }), async (request, response) => {
+    try {
+      const user = userAuth.identifyUser(request);
+      if (!user) throw Object.assign(new Error("Sign in to update your profile image."), { status: 401 });
+      const result = await profileImages.save(user.key, request.body, request.get("content-type")?.split(";")[0]);
+      broadcastFeedChanged();
+      broadcastNoteboardChanged();
+      response.set("Cache-Control", "no-store").json(result);
+    } catch (error) { sendCommunityError(response, error, "Could not save the profile image."); }
+  });
+
+  app.delete("/api/account/profile-image", async (request, response) => {
+    try {
+      const user = userAuth.identifyUser(request);
+      if (!user) throw Object.assign(new Error("Sign in to update your profile image."), { status: 401 });
+      await profileImages.remove(user.key);
+      broadcastFeedChanged();
+      broadcastNoteboardChanged();
+      response.set("Cache-Control", "no-store").json({ ok: true });
+    } catch (error) { sendCommunityError(response, error, "Could not remove the profile image."); }
   });
 
   app.get("/api/admin/moderation/feed", requireOwner, (_request, response) => {

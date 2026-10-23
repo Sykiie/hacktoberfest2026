@@ -67,6 +67,8 @@ test("community APIs protect authorship and owner moderation identity on loopbac
 
 test("AI moderation settings are owner-only and never return the saved API key", async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "local-community-ai-"));
+test("profile images require the right account, validate replacements, and are publicly served", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "local-community-profile-api-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const host = await createHostServer({ port: 0, dataDirectory: directory, interfacesProvider: () => ({}) });
   t.after(() => host.close());
@@ -131,6 +133,50 @@ test("AI checks recover from provider outage and remain private to host moderati
   assert.equal(reviewed.response.status, 200);
   const moderation = await request("/api/admin/moderation/feed", "GET", undefined, ownerCookie);
   assert.equal(moderation.data.posts[0].aiReview.status, "reviewed");
+  const base = `http://127.0.0.1:${host.port}`;
+  const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0]);
+  async function upload(url, buffer, type, cookie = "") {
+    return fetch(`${base}${url}`, { method: "PUT", headers: { "Content-Type": type, ...(cookie ? { Cookie: cookie } : {}) }, body: buffer });
+  }
+  const alice = await fetch(`${base}/api/account/register`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: "ImageAlice", password: "alice-disposable-password" }) });
+  const aliceCookie = alice.headers.get("set-cookie").split(";")[0];
+  const bob = await fetch(`${base}/api/account/register`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: "ImageBob", password: "bob-disposable-password" }) });
+  const bobCookie = bob.headers.get("set-cookie").split(";")[0];
+
+  assert.equal((await upload("/api/account/profile-image", png, "image/png")).status, 401);
+  assert.equal((await upload("/api/account/profile-image", png, "image/png", aliceCookie)).status, 200);
+  assert.equal((await fetch(`${base}/api/profile-images/members/imagealice`)).status, 200);
+  assert.equal((await fetch(`${base}/api/profile-images/members/%2e%2e%2Fsecret`)).status, 404);
+  assert.equal((await upload("/api/account/profile-image", Buffer.from("invalid"), "image/png", aliceCookie)).status, 415);
+  assert.deepEqual(Buffer.from(await (await fetch(`${base}/api/profile-images/members/imagealice`)).arrayBuffer()), png);
+
+  assert.equal((await upload("/api/account/profile-image", png, "image/png", bobCookie)).status, 200);
+  const eventController = new AbortController();
+  const eventResponse = await fetch(`${base}/api/community/events`, { signal: eventController.signal });
+  const eventReader = eventResponse.body.getReader();
+  await eventReader.read();
+  const removal = await fetch(`${base}/api/account/profile-image`, { method: "DELETE", headers: { Cookie: bobCookie } });
+  assert.equal(removal.status, 200);
+  let eventText = "";
+  while (!eventText.includes("noteboard-changed")) {
+    const { value, done } = await eventReader.read();
+    if (done) break;
+    eventText += Buffer.from(value).toString("utf8");
+  }
+  eventController.abort();
+  assert.match(eventText, /feed-changed/);
+  assert.match(eventText, /noteboard-changed/);
+  assert.equal((await fetch(`${base}/api/profile-images/members/imagebob`)).status, 404);
+
+  const owner = await fetch(`${base}/api/admin/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: "locomi" }) });
+  const ownerCookie = owner.headers.get("set-cookie").split(";")[0];
+  const accountList = await fetch(`${base}/api/admin/moderation/accounts`, { headers: { Cookie: ownerCookie } }).then((response) => response.json());
+  assert.equal(accountList.accounts.find((account) => account.username === "ImageAlice").profileImageUrl.startsWith("/api/profile-images/members/imagealice?v="), true);
+  assert.equal((await upload("/api/admin/community/profile-image", png, "image/png")).status, 401);
+  assert.equal((await upload("/api/admin/community/profile-image", png, "image/png", ownerCookie)).status, 200);
+  assert.equal((await fetch(`${base}/api/profile-images/venue`)).status, 200);
+  assert.equal((await fetch(`${base}/api/account/profile-image`, { method: "DELETE", headers: { Cookie: bobCookie } })).status, 200);
+  assert.equal((await fetch(`${base}/api/profile-images/members/imagealice`, { method: "DELETE", headers: { Cookie: bobCookie } })).status, 404);
 });
 
 test("host starts with guest access off, accepts default login and resets sessions on restart", async (t) => {

@@ -110,7 +110,8 @@ export function createUserAuth(usersFile, { now = () => Date.now() } = {}) {
   }
 
   function listAccounts() {
-    return [...users.values()].map((user) => ({ username: user.displayUsername, frozenUntil: user.frozenUntil && Date.parse(user.frozenUntil) > now() ? user.frozenUntil : null }));
+    const version = now();
+    return [...users.values()].map((user) => ({ username: user.displayUsername, profileImageUrl: `/api/profile-images/members/${encodeURIComponent(user.username)}?v=${version}`, frozenUntil: user.frozenUntil && Date.parse(user.frozenUntil) > version ? user.frozenUntil : null }));
   }
 
   async function clear() {
