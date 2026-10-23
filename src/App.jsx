@@ -1134,5 +1134,5 @@ function Admin() {
 }
 
 export default function App() {
-  return window.location.pathname.startsWith("/admin") ? <Admin /> : <GuestWelcome />;
+  return window.location.pathname.startsWith("/guest") ? <GuestWelcome /> : <Admin />;
 }

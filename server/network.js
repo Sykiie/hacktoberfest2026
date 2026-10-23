@@ -31,5 +31,5 @@ export function buildJoinUrl(address, port) {
   if (!Number.isInteger(numericPort) || numericPort < 1 || numericPort > 65535) {
     throw new TypeError("A valid port is required.");
   }
-  return `http://${address}:${numericPort}/`;
+  return `http://${address}:${numericPort}/guest`;
 }
