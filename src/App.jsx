@@ -434,6 +434,32 @@ function AdminLogin({ onAuthenticated }) {
   );
 }
 
+function AiProviderSettings() {
+  const [settings, setSettings] = useState({ provider: "disabled", baseUrl: "", model: "", hasApiKey: false });
+  const [apiKey, setApiKey] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { requestJson("/api/admin/ai-settings").then(setSettings).catch((reason) => setError(reason.message)); }, []);
+  async function save(event) {
+    event.preventDefault(); setBusy(true); setError(""); setMessage("");
+    try {
+      const saved = await requestJson("/api/admin/ai-settings", { method: "PUT", body: JSON.stringify({ ...settings, apiKey, keepExistingKey: !apiKey && settings.hasApiKey }) });
+      setSettings(saved); setApiKey(""); setMessage("AI settings saved.");
+    } catch (reason) { setError(reason.message); } finally { setBusy(false); }
+  }
+  return <section className="admin-card password-card"><p className="eyebrow">FEED MODERATION</p><h2>AI review provider</h2>
+    <p className="card-copy">Choose local Ollama or an OpenAI-compatible provider. Cloud providers receive post and comment text. API keys are stored on this host.</p>
+    <form className="admin-form password-form" onSubmit={save}>
+      <label htmlFor="ai-provider">Provider</label><select id="ai-provider" value={settings.provider} onChange={(event) => setSettings({ ...settings, provider: event.target.value })}>
+        <option value="disabled">Disabled</option><option value="ollama">Local Ollama</option><option value="openai-compatible">Cloud / OpenAI-compatible</option></select>
+      {settings.provider !== "disabled" && <><label htmlFor="ai-url">API base URL</label><input id="ai-url" type="url" value={settings.baseUrl} onChange={(event) => setSettings({ ...settings, baseUrl: event.target.value })} required />
+        <label htmlFor="ai-model">Model name</label><input id="ai-model" value={settings.model} onChange={(event) => setSettings({ ...settings, model: event.target.value })} required />
+        {settings.provider === "openai-compatible" && <><label htmlFor="ai-key">API key {settings.hasApiKey && "(saved; leave blank to keep)"}</label><input id="ai-key" type="password" autoComplete="new-password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} required={!settings.hasApiKey} /></>}</>}
+      {error && <p className="error-message" role="alert">{error}</p>}{message && <p className="success-message" role="status">{message}</p>}
+      <button className="secondary-button" type="submit" disabled={busy}>{busy ? "Saving…" : "Save AI settings"}</button></form></section>;
+}
+
 function AdminFeedModeration() {
   const [posts, setPosts] = useState([]);
   const [error, setError] = useState("");
@@ -481,6 +507,9 @@ function AdminFeedModeration() {
       {editing?.postId === post.id && !editing.commentId ? <form className="edit-form" onSubmit={(event) => { event.preventDefault(); moderate(`/api/admin/moderation/posts/${post.id}`, "PATCH", { text: editText }); }}><textarea maxLength={2000} value={editText} onChange={(event) => setEditText(event.target.value)} required /><div><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit">Save</button></div></form> : <p className="post-text">{post.text}</p>}
       <div className="item-actions"><button type="button" onClick={() => { setEditing({ postId: post.id }); setEditText(post.text); }}>Edit post</button><button type="button" onClick={() => remove(post.id)}>Delete post</button></div>
       <div className="comments"><p className="comments-title">Comments <span>{post.comments.length}</span></p>
+        <small>AI check: {post.aiReview?.status || "not checked"}{post.aiReview?.severity && post.aiReview.severity !== "none" ? " · " + post.aiReview.severity.toUpperCase() : ""}{post.aiReview?.reason ? " · " + post.aiReview.reason : ""}</small>
+        {post.aiReview?.status === "flagged" && <button type="button" onClick={() => moderate("/api/admin/moderation/posts/" + post.id + "/ai-reviewed", "POST")}>Mark AI flag reviewed</button>}
+        {post.comments.map((comment) => <small key={"ai-" + comment.id}>Comment AI check: {comment.aiReview?.status || "not checked"}{comment.aiReview?.severity && comment.aiReview.severity !== "none" ? " · " + comment.aiReview.severity.toUpperCase() : ""}{comment.aiReview?.reason ? " · " + comment.aiReview.reason : ""}{comment.aiReview?.status === "flagged" && <button type="button" onClick={() => moderate("/api/admin/moderation/posts/" + post.id + "/comments/" + comment.id + "/ai-reviewed", "POST")}>Mark comment reviewed</button>}</small>)}
         {post.comments.map((comment) => <div className="comment" key={comment.id}><div className="comment-body"><div className="moderation-author"><strong>{comment.author}</strong>{comment.anonymous && comment.author !== "Anonymous guest" && <span className="anonymity-badge">Anonymous to guests</span>}</div><time>{new Date(comment.createdAt).toLocaleString()}</time>{editing?.commentId === comment.id ? <form className="edit-form" onSubmit={(event) => { event.preventDefault(); moderate(`/api/admin/moderation/posts/${post.id}/comments/${comment.id}`, "PATCH", { text: editText }); }}><textarea maxLength={2000} value={editText} onChange={(event) => setEditText(event.target.value)} required /><div><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit">Save</button></div></form> : <p>{comment.text}</p>}{comment.updatedAt && <small>Edited</small>}<div className="item-actions"><button type="button" onClick={() => { setEditing({ postId: post.id, commentId: comment.id }); setEditText(comment.text); }}>Edit comment</button><button type="button" onClick={() => remove(post.id, comment.id)}>Delete comment</button></div></div></div>)}
       </div>
     </article>)}
@@ -934,6 +963,7 @@ function AdminDashboard({ initialStatus, onLogout }) {
           <button className="secondary-button" type="submit" disabled={passwordBusy}>{passwordBusy ? "Saving…" : "Change password"}</button>
         </form>
       </section>
+      <AiProviderSettings />
       </section>}
 
       {communityPrompt && <div className="community-modal-backdrop" role="presentation">

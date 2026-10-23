@@ -65,6 +65,74 @@ test("community APIs protect authorship and owner moderation identity on loopbac
   await host.close();
 });
 
+test("AI moderation settings are owner-only and never return the saved API key", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "local-community-ai-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const host = await createHostServer({ port: 0, dataDirectory: directory, interfacesProvider: () => ({}) });
+  t.after(() => host.close());
+  await host.start();
+  const base = "http://127.0.0.1:" + host.port;
+  const request = async (url, method = "GET", body, cookie = "") => {
+    const response = await fetch(base + url, { method, headers: { ...(body ? { "Content-Type": "application/json" } : {}), ...(cookie ? { Cookie: cookie } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    return { response, data: await response.json().catch(() => ({})) };
+  };
+  assert.equal((await request("/api/admin/ai-settings")).response.status, 401);
+  const login = await request("/api/admin/login", "POST", { password: "locomi" });
+  const cookie = login.response.headers.get("set-cookie").split(";")[0];
+  const saved = await request("/api/admin/ai-settings", "PUT", { provider: "openai-compatible", baseUrl: "https://api.example.test/v1", model: "moderation-model", apiKey: "never-return-this" }, cookie);
+  assert.equal(saved.response.status, 200);
+  assert.equal(saved.data.hasApiKey, true);
+  assert.equal("apiKey" in saved.data, false);
+  const settings = await request("/api/admin/ai-settings", "GET", undefined, cookie);
+  assert.equal(settings.data.hasApiKey, true);
+  assert.equal(JSON.stringify(settings.data).includes("never-return-this"), false);
+});
+
+test("AI checks recover from provider outage and remain private to host moderation", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "local-community-ai-flow-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  let available = false;
+  const aiFetch = async (_url, options) => available
+    ? { ok: true, json: async () => {
+      const prompt = JSON.parse(options.body).messages[0].content;
+      const inputs = JSON.parse(prompt.slice(prompt.indexOf("Items:\n") + 7));
+      return { choices: [{ message: { content: JSON.stringify({ results: inputs.map(({ id }) => ({ id, flagged: true, severity: "high", reason: "Possible scam" })) }) } }] };
+    } }
+    : { ok: false, status: 503, json: async () => ({ error: { message: "Provider temporarily unavailable" } }) };
+  const host = await createHostServer({ port: 0, dataDirectory: directory, interfacesProvider: () => ({}), aiFetch, aiRetryBaseDelayMs: 20, aiRetryIntervalMs: 10 });
+  t.after(() => host.close());
+  await host.start();
+  const base = "http://127.0.0.1:" + host.port;
+  const request = async (url, method = "GET", body, cookie = "") => {
+    const response = await fetch(base + url, { method, headers: { ...(body ? { "Content-Type": "application/json" } : {}), ...(cookie ? { Cookie: cookie } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    return { response, data: await response.json().catch(() => ({})) };
+  };
+  const owner = await request("/api/admin/login", "POST", { password: "locomi" });
+  const ownerCookie = owner.response.headers.get("set-cookie").split(";")[0];
+  await request("/api/admin/ai-settings", "PUT", { provider: "openai-compatible", baseUrl: "https://api.example.test/v1", model: "moderator", apiKey: "secret" }, ownerCookie);
+  const created = await request("/api/community/posts", "POST", { text: "Check this suspicious offer" });
+  assert.equal(created.response.status, 201);
+  const waitForStatus = async (status) => {
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const result = await request("/api/admin/moderation/feed", "GET", undefined, ownerCookie);
+      if (result.data.posts[0]?.aiReview?.status === status) return result.data.posts[0];
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new Error("Timed out waiting for AI state " + status);
+  };
+  const unavailable = await waitForStatus("unavailable");
+  assert.match(unavailable.aiReview.reason, /HTTP 503.*Provider temporarily unavailable/);
+  available = true;
+  const flagged = await waitForStatus("flagged");
+  assert.equal(flagged.aiReview.reason, "Possible scam");
+  const publicFeed = await request("/api/community/feed");
+  assert.equal("aiReview" in publicFeed.data.posts[0], false);
+  const reviewed = await request("/api/admin/moderation/posts/" + created.data.id + "/ai-reviewed", "POST", undefined, ownerCookie);
+  assert.equal(reviewed.response.status, 200);
+  const moderation = await request("/api/admin/moderation/feed", "GET", undefined, ownerCookie);
+  assert.equal(moderation.data.posts[0].aiReview.status, "reviewed");
+});
+
 test("host starts with guest access off, accepts default login and resets sessions on restart", async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "local-community-host-"));
   t.after(() => rm(directory, { recursive: true, force: true }));

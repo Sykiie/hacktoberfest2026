@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-10-23
+goal: Use an on-host open-weight AI model to flag community feed posts and
+  comments for human moderation, including automatically checking content after
+  temporary model unavailability.

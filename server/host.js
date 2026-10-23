@@ -11,6 +11,7 @@ import { createUserAuth } from "./user-auth.js";
 import { createCommunityStore } from "./community-store.js";
 import { createNoteboardStore } from "./noteboard-store.js";
 import { createVenueCommunityStore } from "./venue-community-store.js";
+import { createAiSettingsStore, classifyBatch } from "./ai-moderation.js";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const projectDir = path.resolve(currentDir, "..");
@@ -40,6 +41,9 @@ export async function createHostServer({
   port = Number(process.env.PORT || 3000),
   dataDirectory = process.env.LOCAL_COMMUNITY_DATA_DIR || path.join(projectDir, "data"),
   interfacesProvider = () => os.networkInterfaces(),
+  aiFetch = fetch,
+  aiRetryBaseDelayMs = 15000,
+  aiRetryIntervalMs = 15000,
   qrEncoder = (url) => QRCode.toDataURL(url, { errorCorrectionLevel: "M", margin: 1, width: 240 }),
 } = {}) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
@@ -53,6 +57,8 @@ export async function createHostServer({
   await userAuth.load();
   const community = createCommunityStore(path.join(dataDirectory, "community.json"));
   await community.load();
+  const aiSettings = createAiSettingsStore(path.join(dataDirectory, "ai-moderation.json"));
+  await aiSettings.load();
   const venueCommunity = createVenueCommunityStore(path.join(dataDirectory, "venue-community.json"));
   await venueCommunity.load();
   const noteboard = createNoteboardStore({ boardFile: path.join(dataDirectory, "noteboard.json"), auditFile: path.join(dataDirectory, "noteboard-audit.json") });
@@ -68,6 +74,59 @@ export async function createHostServer({
   let communityDeleting = false;
   let refreshTimer;
   let noteboardTimer;
+  let aiRetryTimer;
+  let aiWorkerRunning = false;
+  const aiRetryState = new Map();
+  let aiGlobalPauseUntil = 0;
+
+  async function processAiChecks() {
+    if (aiWorkerRunning || aiSettings.get().provider === "disabled" || aiGlobalPauseUntil > Date.now()) return;
+    aiWorkerRunning = true;
+    try {
+      const now = Date.now();
+      const ready = community.listAiChecks().filter((item) => {
+        const key = item.itemType + ":" + item.postId + ":" + (item.commentId || "");
+        return (aiRetryState.get(key)?.nextAt || 0) <= now;
+      });
+      for (let offset = 0; offset < ready.length; offset += 5) {
+        const batch = ready.slice(offset, offset + 5);
+        const ids = new Map(batch.map((item) => [item.itemType + ":" + item.postId + ":" + (item.commentId || ""), item]));
+        try {
+          const results = await classifyBatch(aiSettings.get(), batch.map((item, index) => ({ ...item, id: String(index + 1) })), aiFetch);
+          for (let index = 0; index < batch.length; index += 1) {
+            const item = batch[index];
+            const key = item.itemType + ":" + item.postId + ":" + (item.commentId || "");
+            const result = results.get(String(index + 1));
+            if (!result) {
+              const attempts = (aiRetryState.get(key)?.attempts || 0) + 1;
+              aiRetryState.set(key, { attempts, nextAt: Date.now() + Math.min(300000, aiRetryBaseDelayMs * (2 ** Math.min(attempts - 1, 5))) });
+              await community.setAiReview({ ...item, status: "unavailable", reason: "AI batch omitted a result for this item; it will be retried.", expectedText: item.text });
+              continue;
+            }
+            await community.setAiReview({ ...item, status: result.flagged ? "flagged" : "clear", reason: result.reason, severity: result.severity, checkedAt: new Date().toISOString(), expectedText: item.text });
+            aiRetryState.delete(key);
+          }
+        } catch (error) {
+          const retryAt = Date.now() + (error.retryAfterMs || (error.status === 429 ? Math.max(aiRetryBaseDelayMs, 60000) : aiRetryBaseDelayMs));
+          if (error.status === 429) aiGlobalPauseUntil = retryAt;
+          for (const item of batch) {
+            const key = item.itemType + ":" + item.postId + ":" + (item.commentId || "");
+            const attempts = (aiRetryState.get(key)?.attempts || 0) + 1;
+            const backoff = Math.min(300000, aiRetryBaseDelayMs * (2 ** Math.min(attempts - 1, 5)));
+            const nextAt = error.status === 429 ? retryAt : Date.now() + backoff;
+            aiRetryState.set(key, { attempts, nextAt });
+            await community.setAiReview({ ...item, status: "unavailable", reason: error.message || "AI provider request failed.", expectedText: item.text });
+          }
+        }
+        broadcastFeedChanged();
+        if (aiGlobalPauseUntil > Date.now()) break;
+      }
+    } finally { aiWorkerRunning = false; }
+  }
+
+  function scheduleAiChecks() {
+    queueMicrotask(() => processAiChecks().catch((error) => console.error("AI moderation check failed:", error.message)));
+  }
 
   app.disable("x-powered-by");
   app.use(express.json({ limit: "8kb" }));
@@ -212,7 +271,9 @@ export async function createHostServer({
         text: request.body?.text,
         author,
         anonymous: author ? request.body?.anonymous === true : true,
+        aiEnabled: aiSettings.get().provider !== "disabled",
       });
+      scheduleAiChecks();
       broadcastFeedChanged();
       response.status(201).set("Cache-Control", "no-store").json({ id });
     } catch (error) {
@@ -224,7 +285,8 @@ export async function createHostServer({
     try {
       const author = userAuth.identifyUser(request);
       if (author) userAuth.assertCanContribute(author.key);
-      await community.updatePost({ postId: request.params.postId, text: request.body?.text, authorKey: author?.key });
+      await community.updatePost({ postId: request.params.postId, text: request.body?.text, authorKey: author?.key, aiEnabled: aiSettings.get().provider !== "disabled" });
+      scheduleAiChecks();
       broadcastFeedChanged();
       response.set("Cache-Control", "no-store").json({ ok: true });
     } catch (error) {
@@ -253,7 +315,9 @@ export async function createHostServer({
         text: request.body?.text,
         author,
         anonymous: author ? request.body?.anonymous === true : true,
+        aiEnabled: aiSettings.get().provider !== "disabled",
       });
+      scheduleAiChecks();
       broadcastFeedChanged();
       response.status(201).set("Cache-Control", "no-store").json({ id });
     } catch (error) {
@@ -265,7 +329,8 @@ export async function createHostServer({
     try {
       const author = userAuth.identifyUser(request);
       if (author) userAuth.assertCanContribute(author.key);
-      await community.updateComment({ postId: request.params.postId, commentId: request.params.commentId, text: request.body?.text, authorKey: author?.key });
+      await community.updateComment({ postId: request.params.postId, commentId: request.params.commentId, text: request.body?.text, authorKey: author?.key, aiEnabled: aiSettings.get().provider !== "disabled" });
+      scheduleAiChecks();
       broadcastFeedChanged();
       response.set("Cache-Control", "no-store").json({ ok: true });
     } catch (error) {
@@ -381,6 +446,18 @@ export async function createHostServer({
     });
   });
 
+  app.get("/api/admin/ai-settings", requireOwner, (_request, response) => {
+    response.set("Cache-Control", "no-store").json(aiSettings.getPublic());
+  });
+
+  app.put("/api/admin/ai-settings", requireOwner, async (request, response) => {
+    try {
+      const saved = await aiSettings.save(request.body || {});
+      scheduleAiChecks();
+      response.set("Cache-Control", "no-store").json(saved);
+    } catch (error) { sendCommunityError(response, error, "Could not save AI provider settings."); }
+  });
+
   app.get("/api/admin/community", requireOwner, (_request, response) => {
     response.set("Cache-Control", "no-store").json({ community: venueCommunity.get() });
   });
@@ -478,6 +555,16 @@ export async function createHostServer({
       broadcastNoteboardChanged();
       response.set("Cache-Control", "no-store").json(result);
     } catch (error) { sendCommunityError(response, error, "Could not update this account's freeze."); }
+  });
+
+  app.post("/api/admin/moderation/posts/:postId/ai-reviewed", requireOwner, async (request, response) => {
+    try { await community.markAiReviewed({ itemType: "post", postId: request.params.postId }); broadcastFeedChanged(); response.json({ ok: true }); }
+    catch (error) { sendCommunityError(response, error, "Could not mark this post reviewed."); }
+  });
+
+  app.post("/api/admin/moderation/posts/:postId/comments/:commentId/ai-reviewed", requireOwner, async (request, response) => {
+    try { await community.markAiReviewed({ itemType: "comment", postId: request.params.postId, commentId: request.params.commentId }); broadcastFeedChanged(); response.json({ ok: true }); }
+    catch (error) { sendCommunityError(response, error, "Could not mark this comment reviewed."); }
   });
 
   app.patch("/api/admin/moderation/posts/:postId", requireOwner, async (request, response) => {
@@ -594,6 +681,9 @@ export async function createHostServer({
         if (hostingEnabled) syncLanListeners().catch((error) => console.error("Could not refresh LAN listeners:", error.message));
       }, 5000);
       refreshTimer.unref();
+      aiRetryTimer = setInterval(scheduleAiChecks, aiRetryIntervalMs);
+      aiRetryTimer.unref();
+      scheduleAiChecks();
       noteboardTimer = setInterval(() => {
         noteboard.processDeadlines().then((changed) => { if (changed) broadcastNoteboardChanged(); })
           .catch((error) => console.error("Could not process noteboard deadlines:", error.message));
@@ -608,6 +698,7 @@ export async function createHostServer({
     async close() {
       clearInterval(refreshTimer);
       clearInterval(noteboardTimer);
+      clearInterval(aiRetryTimer);
       await disableHosting();
       await closeServer(loopbackListener);
       loopbackListener = undefined;

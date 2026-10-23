@@ -73,3 +73,26 @@ test("accountless posts and comments are anonymous and cannot be managed by an u
   await assert.rejects(store.updatePost({ postId, text: "Edit", authorKey: null }), { status: 403 });
   await assert.rejects(store.deleteComment({ postId, commentId, authorKey: null }), { status: 403 });
 });
+
+test("AI review state persists privately, rejects stale results, and resets after edits", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "local-community-ai-review-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const file = path.join(directory, "community.json");
+  const store = createCommunityStore(file);
+  await store.load();
+  const postId = await store.createPost({ text: "original", aiEnabled: true });
+  assert.equal(store.listAiChecks()[0].text, "original");
+  await store.updatePost({ postId, text: "edited", isModerator: true, aiEnabled: true });
+  assert.equal(await store.setAiReview({ itemType: "post", postId, status: "flagged", reason: "stale", expectedText: "original" }), false);
+  assert.equal(await store.setAiReview({ itemType: "post", postId, status: "flagged", reason: "review this", severity: "high", expectedText: "edited" }), true);
+  assert.equal(store.listForModeration()[0].aiReview.status, "flagged");
+  assert.equal(store.listForModeration()[0].aiReview.severity, "high");
+  assert.equal("aiReview" in store.list()[0], false);
+  await store.markAiReviewed({ itemType: "post", postId });
+  assert.equal(store.listForModeration()[0].aiReview.status, "reviewed");
+  const reloaded = createCommunityStore(file);
+  await reloaded.load();
+  assert.equal(reloaded.listForModeration()[0].aiReview.reason, "review this");
+  await reloaded.updatePost({ postId, text: "new edit", isModerator: true, aiEnabled: true });
+  assert.equal(reloaded.listForModeration()[0].aiReview.status, "pending");
+});
