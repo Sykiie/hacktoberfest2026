@@ -98,8 +98,6 @@ The current community modules do not include feed reactions, attachments, privat
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, testing, module and venue-type extensions, and pull-request guidance. Current behavior is specified in `openspec/specs/`; completed changes are recorded in `openspec/changes/archive/`. Read [SECURITY.md](SECURITY.md) before configuring a cloud moderation key. The project is released under the [MIT License](LICENSE); version history is in [CHANGELOG.md](CHANGELOG.md) and the current release series is in `package.json`.
 
-For the judging demo, see [DEMO_SCRIPT.md](DEMO_SCRIPT.md) for a one-minute recording plan using the running app and a second device.
-
 ## Deployment and scale
 
 Locomi is designed for one venue community on one self-hosted computer. Guest feed requests return cursor-based pages of 30 posts, so the initial page and routine refreshes stay bounded as the feed grows. The current JSON stores still rewrite local files on updates, sessions live in process memory, and live events are broadcast by that process. This keeps the venue setup low-cost and easy to back up, and suits a small or medium local event, but does not provide horizontal scaling or shared sessions across hosts. A larger multi-venue deployment should first replace the JSON stores with a database-backed store, move sessions and event delivery to shared services, and add HTTPS and load testing. Contributors can keep the current store contracts while introducing those adapters incrementally.

@@ -7,7 +7,6 @@ const requiredFiles = [
   "CODE_OF_CONDUCT.md",
   "SECURITY.md",
   "CHANGELOG.md",
-  "DEMO_SCRIPT.md",
   "LICENSE",
 ];
 const markdownRoots = [
@@ -16,7 +15,6 @@ const markdownRoots = [
   "CODE_OF_CONDUCT.md",
   "SECURITY.md",
   "CHANGELOG.md",
-  "DEMO_SCRIPT.md",
   "openspec/specs",
 ];
 
