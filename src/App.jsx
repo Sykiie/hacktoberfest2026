@@ -25,6 +25,31 @@ function memberImageUrl(username) {
   return `/api/profile-images/members/${encodeURIComponent(username.toLowerCase())}`;
 }
 
+function ProfileImageCrop({ file, onCancel, onConfirm, busy }) {
+  const [source, setSource] = useState("");
+  const [image, setImage] = useState(null);
+  const [offset, setOffset] = useState({ x: 0.5, y: 0.5 });
+  useEffect(() => {
+    const url = URL.createObjectURL(file);
+    setSource(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+  const makeCrop = () => {
+    const side = Math.min(image.naturalWidth, image.naturalHeight);
+    const sx = (image.naturalWidth - side) * offset.x;
+    const sy = (image.naturalHeight - side) * offset.y;
+    const canvas = document.createElement("canvas");
+    canvas.width = 512; canvas.height = 512;
+    canvas.getContext("2d").drawImage(image, sx, sy, side, side, 0, 0, 512, 512);
+    canvas.toBlob((blob) => blob && onConfirm(new File([blob], "profile-crop.png", { type: "image/png" })), "image/png");
+  };
+  const side = image ? Math.min(image.naturalWidth, image.naturalHeight) : 0;
+  const previewScale = image ? 320 / side : 1;
+  const previewWidth = image ? image.naturalWidth * previewScale : 0;
+  const previewHeight = image ? image.naturalHeight * previewScale : 0;
+  return <div className="crop-backdrop" role="presentation"><section className="crop-dialog" role="dialog" aria-modal="true" aria-labelledby="crop-title"><h2 id="crop-title">Crop profile picture</h2><p>Adjust the square crop with the controls, then save.</p><div className="crop-window">{source && <img className="crop-source" src={source} alt="Image to crop" onLoad={(event) => setImage(event.currentTarget)} style={{ width: previewWidth, height: previewHeight, left: image ? -((image.naturalWidth - side) * offset.x * previewScale) : 0, top: image ? -((image.naturalHeight - side) * offset.y * previewScale) : 0 }} />}</div><div className="crop-controls"><label>Horizontal crop <input aria-label="Horizontal crop position" type="range" min="0" max="100" value={offset.x * 100} onChange={(event) => setOffset((value) => ({ ...value, x: Number(event.target.value) / 100 }))} disabled={!image || image?.naturalWidth <= image?.naturalHeight} /></label><label>Vertical crop <input aria-label="Vertical crop position" type="range" min="0" max="100" value={offset.y * 100} onChange={(event) => setOffset((value) => ({ ...value, y: Number(event.target.value) / 100 }))} disabled={!image || image?.naturalHeight <= image?.naturalWidth} /></label></div><div className="crop-actions"><button type="button" className="text-button" onClick={onCancel} disabled={busy}>Cancel</button><button type="button" className="primary-button" onClick={makeCrop} disabled={!image || !side || busy}>{busy ? "Saving…" : "Use crop"}</button></div></section></div>;
+}
+
 function GuestWelcome() {
   const [screen, setScreen] = useState("login");
   const [username, setUsername] = useState("");
@@ -48,6 +73,8 @@ function GuestWelcome() {
   const [venueName, setVenueName] = useState("LOCAL COMMUNITY");
   const [venueImageUrl, setVenueImageUrl] = useState("/api/profile-images/venue");
   const [profileImageError, setProfileImageError] = useState("");
+  const [pendingProfileImage, setPendingProfileImage] = useState(null);
+  const [profileImageBusy, setProfileImageBusy] = useState(false);
   const [notes, setNotes] = useState([]);
   const [noteText, setNoteText] = useState("");
   const [noteName, setNoteName] = useState("");
@@ -108,12 +135,14 @@ function GuestWelcome() {
     setProfileImageError("");
     try {
       if (file) {
+        setProfileImageBusy(true);
         const response = await fetch("/api/account/profile-image", { method: "PUT", headers: { "Content-Type": file.type }, body: file });
         const result = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(result.error || "Could not save the profile image.");
       } else await requestJson("/api/account/profile-image", { method: "DELETE" });
       setUser((current) => ({ ...current, profileImageUrl: `${memberImageUrl(current.username)}?v=${Date.now()}` }));
     } catch (reason) { setProfileImageError(reason.message); }
+    finally { setProfileImageBusy(false); setPendingProfileImage(null); }
   }
 
   const refreshNoteboard = useCallback(async () => {
@@ -359,7 +388,8 @@ function GuestWelcome() {
 
   return (
     <main className="guest-page feed-page">
-      <header className="feed-topbar"><div className="feed-brand"><Avatar src={`${venueImageUrl}?v=${encodeURIComponent(venueName)}`} name={venueName} className="guest-mark venue-avatar" /><div><p className="eyebrow">{venueName}</p><strong>{communityTab === "feed" ? "Community feed" : communityTab === "noteboard" ? "Noteboard" : "Community"}</strong></div></div><div className="feed-account" role="status">{user ? <><Avatar src={user.profileImageUrl} name={user.username} /><span>Signed in as <strong>{user.username}</strong></span><label className="text-button file-button">Profile image<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => updateMemberImage(event.target.files?.[0])} /></label><button className="text-button" type="button" onClick={() => updateMemberImage(null)}>Remove image</button><button className="text-button" type="button" onClick={signOut}>Sign out</button></> : <>Continuing as guest<button className="text-button" type="button" onClick={() => { setError(""); setScreen("login"); }}>Sign in</button></>}{profileImageError && <span className="error-message" role="alert">{profileImageError}</span>}</div></header>
+      <header className="feed-topbar"><div className="feed-brand"><Avatar src={`${venueImageUrl}?v=${encodeURIComponent(venueName)}`} name={venueName} className="guest-mark venue-avatar" /><div><p className="eyebrow">{venueName}</p><strong>{communityTab === "feed" ? "Community feed" : communityTab === "noteboard" ? "Noteboard" : "Community"}</strong></div></div><div className="feed-account" role="status">{user ? <><Avatar src={user.profileImageUrl} name={user.username} /><span>Signed in as <strong>{user.username}</strong></span><label className="text-button file-button">Profile image<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) setPendingProfileImage(file); event.target.value = ""; }} /></label><button className="text-button" type="button" onClick={() => updateMemberImage(null)}>Remove image</button><button className="text-button" type="button" onClick={signOut}>Sign out</button></> : <>Continuing as guest<button className="text-button" type="button" onClick={() => { setError(""); setScreen("login"); }}>Sign in</button></>}{profileImageError && <span className="error-message" role="alert">{profileImageError}</span>}</div></header>
+      {pendingProfileImage && <ProfileImageCrop file={pendingProfileImage} onCancel={() => setPendingProfileImage(null)} onConfirm={updateMemberImage} busy={profileImageBusy} />}
       {enabledModules.length > 0 && <nav className="community-module-tabs" role="tablist" aria-label="Community modules">
         {enabledModules.includes("feed") && <button type="button" role="tab" aria-selected={communityTab === "feed"} className={communityTab === "feed" ? "module-tab module-tab-active" : "module-tab"} onClick={() => setCommunityTab("feed")}>Shared Feed</button>}
         {enabledModules.includes("noteboard") && <button type="button" role="tab" aria-selected={communityTab === "noteboard"} className={communityTab === "noteboard" ? "module-tab module-tab-active" : "module-tab"} onClick={() => setCommunityTab("noteboard")}>Noteboard</button>}
@@ -390,7 +420,7 @@ function GuestWelcome() {
         <div className="noteboard-canvas" role="application" aria-label="Click to choose where to place a note" onClick={chooseNotePosition}>
           <div className="board-grid" aria-hidden="true" />
           {notes.map((note, index) => <article key={note.id} className="sticky-note" style={{ left: `${note.x * 100}%`, top: `${note.y * 100}%`, zIndex: notes.length - index }}>
-            <small className="sticky-author"><Avatar src={note.profileImageUrl} name={note.displayName} className="sticky-avatar" />{note.displayName}</small><p>{note.text}</p>{note.showDate && <time>{new Date(note.createdAt).toLocaleDateString()}</time>}
+            <small className="sticky-author">{note.displayName}</small><p>{note.text}</p>{note.showDate && <time>{new Date(note.createdAt).toLocaleDateString()}</time>}
             {note.canDelete && <button type="button" className="sticky-delete" onClick={(event) => { event.stopPropagation(); removeNote(note); }} disabled={currentTime < noteCooldownUntil} title={currentTime < noteCooldownUntil ? "Posting cooldown is active" : "Delete your note"}>×</button>}
           </article>)}
           {(noteText.trim() || replacementPreview) && <article className="sticky-note sticky-note-preview" style={{ left: `${notePosition.x * 100}%`, top: `${notePosition.y * 100}%` }}><small>{replacementPreview?.displayName ?? noteName}</small><p>{replacementPreview?.text || noteText}</p>{(replacementPreview?.showDate ?? showNoteDate) && <time>{new Date().toLocaleDateString()}</time>}</article>}
