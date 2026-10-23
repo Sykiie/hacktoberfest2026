@@ -390,7 +390,7 @@ function GuestWelcome() {
   return (
     <main className="guest-page feed-page">
       <header className="feed-topbar"><div className="feed-brand"><Avatar src={`${venueImageUrl}?v=${encodeURIComponent(venueName)}`} name={venueName} className="guest-mark venue-avatar" /><div><p className="eyebrow">{venueName}</p><strong>{communityTab === "feed" ? "Community feed" : communityTab === "noteboard" ? "Noteboard" : "Community"}</strong></div></div><div className="feed-account">{user ? <details className="member-account-menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false; }} onKeyDown={(event) => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}>
-        <summary className="member-menu-trigger"><Avatar src={user.profileImageUrl} name={user.username} /><span>Signed in as <strong>{user.username}</strong></span><span className="member-menu-chevron" aria-hidden="true">⌄</span></summary>
+        <summary className="member-menu-trigger"><Avatar src={user.profileImageUrl} name={user.username} /><span>Signed in as <strong>{user.username}</strong></span><span className="member-menu-more" aria-hidden="true">⋮</span></summary>
         <div className="member-menu-panel">
           <label className="member-menu-item file-button">Profile image<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) setPendingProfileImage(file); event.currentTarget.closest("details").open = false; event.target.value = ""; }} /></label>
           <button className="member-menu-item" type="button" onClick={(event) => { event.currentTarget.closest("details").open = false; updateMemberImage(null); }}>Remove image</button>
@@ -1038,7 +1038,7 @@ function AdminDashboard({ initialStatus, onLogout }) {
       {activeTab === "community" && <section id="host-panel-community" className="admin-tab-panel" role="tabpanel" aria-labelledby="host-tab-community" tabIndex={0}>
       <div className={`admin-grid community-settings-grid ${status.communityExists && communityLoaded ? "community-settings-ready" : "community-settings-empty"}`}>
         {status.communityExists && communityLoaded && <VenueProfileImageSettings venueName={community?.venueName || "Community"} />}
-        <section className="admin-card host-community-card"><div><p className="eyebrow">HOST PARTICIPATION</p><h2>Join the community feed</h2><p className="card-copy">To publish publicly, open the shared feed and sign in with a regular community account. Admin credentials stay private.</p></div><a className="secondary-button" href="/" target="_blank" rel="noreferrer">Open community feed ↗</a></section>
+        <section className="admin-card host-community-card"><div><p className="eyebrow">HOST PARTICIPATION</p><h2>Join the community feed</h2><p className="card-copy">To publish publicly, open the shared feed and sign in with a regular community account. Admin credentials stay private.</p></div>{join?.url ? <a className="secondary-button" href={join.url} target="_blank" rel="noreferrer">Open community feed ↗</a> : <button className="secondary-button" type="button" disabled>Enable guest hosting to open the link</button>}</section>
       </div>
       <AdminModeration />
       </section>}

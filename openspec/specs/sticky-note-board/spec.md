@@ -22,7 +22,7 @@ The system SHALL provide one shared noteboard to visitors who can access the loc
 - **THEN** open noteboard views update without a full page reload
 
 ### Requirement: Submit a note with a public display name
-The system SHALL allow a visitor, including an accountless guest, to submit a non-empty text note of no more than 500 characters with a public display name. A signed-in visitor's account identity SHALL remain available to the host independently of the chosen public display name.
+The system SHALL allow a visitor, including an accountless guest, to submit a non-empty text note of no more than 500 characters with a public display name. A signed-in visitor's account identity SHALL remain available to the host independently of the chosen public display name. Noteboard notes SHALL show the public display name without displaying the author's profile image.
 
 #### Scenario: Guest submits a note
 - **WHEN** an accountless guest submits a note with a chosen display name
@@ -37,6 +37,10 @@ The system SHALL allow a visitor, including an accountless guest, to submit a no
 #### Scenario: Note exceeds the text limit
 - **WHEN** a visitor submits a note longer than 500 characters
 - **THEN** the system rejects the submission and reports the maximum length
+
+#### Scenario: Note author has a profile image
+- **WHEN** a visitor views a note authored by someone with a profile image
+- **THEN** the board displays the note's public display name without the profile image
 
 ### Requirement: Choose whether a note displays its date
 The system SHALL let the author choose while composing each note whether its calendar date is displayed. New notes SHALL show the date by default. When displayed, the note SHALL show the date without a time; when disabled, it SHALL show neither date nor time. The choice SHALL persist through guest review, automatic approval, and replacement placement. Existing notes without a saved choice SHALL continue to display their date.

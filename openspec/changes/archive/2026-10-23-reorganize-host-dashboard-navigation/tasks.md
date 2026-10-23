@@ -16,3 +16,4 @@
 - [x] 2.7 Add a Save QR code download for the generated PNG; verify the control downloads the current guest QR image.
 - [x] 2.8 Remove the Hosting intro copy from Community and Security; verify it remains visible on Hosting only.
 - [x] 2.9 Move signed-in community profile actions into an account dropdown with the username as its visible trigger; verify keyboard dismissal and keep guest Sign in visible.
+- [x] 2.10 Connect Open community feed to the generated guest URL and disable it until the URL is ready; verify it no longer falls back to the admin root.

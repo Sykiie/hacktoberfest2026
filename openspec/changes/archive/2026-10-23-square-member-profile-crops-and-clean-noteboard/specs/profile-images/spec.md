@@ -11,6 +11,10 @@ An authenticated community member SHALL be able to upload, replace, or remove th
 - **WHEN** a signed-in member cancels the crop step
 - **THEN** the system does not upload or replace the profile image
 
+#### Scenario: Member uploads a profile image
+- **WHEN** a signed-in member selects a valid image and confirms its square crop
+- **THEN** the system saves the cropped image to that member's account
+
 #### Scenario: Member attempts to change another profile
 - **WHEN** a member attempts to upload, replace, or remove another account's image
 - **THEN** the system rejects the request

@@ -9,6 +9,7 @@ Host controls and moderation destinations are spread across the dashboard, makin
 - Place Hosting, Community, and Security in a centered primary navigation at the top of the host dashboard.
 - Keep Feed, Noteboard, and Accounts in the Community moderation tabs.
 - Keep Sign out available as a standalone action in the upper-right header.
+- Make the Host Participation action open the same guest URL encoded in the QR code, and keep it unavailable when that URL is not active.
 - When guest hosting is enabled, place the QR join panel to the right of Guest Access and let the host save the QR image as a PNG.
 - Show the Community Identity and Host Participation cards in a two-column Community layout, and remove the Hosting intro from Community and Security.
 - Show Owner Security and Feed Moderation cards in a two-column Security layout.

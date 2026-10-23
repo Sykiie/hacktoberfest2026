@@ -55,3 +55,14 @@ When guest hosting is enabled, the Hosting view SHALL place the QR join panel to
 - **WHEN** an authenticated owner selects Save QR code
 - **THEN** the browser downloads the QR image as a PNG file
 
+### Requirement: Open the host participation link for guests
+The Host Participation action SHALL open the same guest URL used by the QR code. The action SHALL be unavailable while guest hosting is off or the guest URL is not ready.
+
+#### Scenario: Owner opens the guest link
+- **WHEN** the guest URL is ready and the owner selects Open community feed
+- **THEN** the browser opens the guest URL encoded by the QR code
+
+#### Scenario: Guest URL is unavailable
+- **WHEN** guest hosting is off or the guest URL has not loaded
+- **THEN** the Open community feed action is unavailable
+

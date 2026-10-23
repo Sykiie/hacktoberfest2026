@@ -25,6 +25,7 @@ The host dashboard currently renders its brand, hosting status, and Sign out in 
 - In the visitor community header, use the signed-in username as the native account-menu trigger. Place Profile image, Remove image, and Sign out actions inside it; keep the guest Sign in action visible for unauthenticated visitors.
 - Show the dashboard intro only on Hosting. Use two-column grids for Community Identity with Host Participation and Owner Security with Feed Moderation.
 - Render Guest Access first in the Hosting grid and the QR join panel to its right on desktop. When hosting is off, let Guest Access use the full row because the QR panel is not available. Use the generated PNG data URL as a direct browser download for Save QR code.
+- Bind Open community feed to the generated `join.url`, matching the QR destination. Render the action disabled until the URL is available rather than falling back to the current root path.
 - At small widths, keep the three primary tabs visible in a compact full-width row and stack all paired cards into one column.
 
 ## Risks / Trade-offs
